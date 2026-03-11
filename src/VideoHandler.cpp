@@ -2,7 +2,7 @@
 
 // int VideoHandler::fourcc = static_cast<int>(cap.get(cv::CAP_PROP_FOURCC));
 
-VideoHandler::VideoHandler(const string output_path) : output_path(output_path){
+VideoHandler::VideoHandler(const string output_path) : output_path_(output_path){
 }
 VideoHandler::~VideoHandler(){
         cap_.release();
@@ -39,12 +39,12 @@ void VideoHandler::open_webcam(const int &camera_index) {
 
 void VideoHandler::set_video_writer() {
     int min_side_len = min(frame_height, frame_width);
-    bool ret = output_.open(output_path, codec_, fps, Size(min_side_len, min_side_len));
+    bool ret = output_.open(output_path_, codec_, fps, Size(min_side_len, min_side_len));
     if (!ret) {
-        cerr << "Error: Could not open video writer with path: " << output_path << endl;
+        cerr << "Error: Could not open video writer with path: " << output_path_ << endl;
         exit(EXIT_FAILURE);
     } else {
-        cout << "Successfully opened video writer with path: " << output_path << endl;
+        cout << "Successfully opened video writer with path: " << output_path_ << endl;
     }
 }
 
