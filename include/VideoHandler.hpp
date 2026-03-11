@@ -7,8 +7,6 @@ using namespace std;
 
 class VideoHandler {
     public:
-        const string input_path;
-        const string output_path;
         float fps;
         int frame_width;
         int frame_height;
@@ -16,7 +14,7 @@ class VideoHandler {
         
         Mat frame;
 
-        VideoHandler(string output_path_);
+        VideoHandler(string output_path);
         ~VideoHandler();
 
         void crop_frame( Mat &frame );
@@ -29,6 +27,7 @@ class VideoHandler {
         void set_video_writer();
 
     private:
+        const string output_path_;
         const int camera_index = 0;
         const int codec_ = VideoWriter::fourcc('M', 'J', 'P', 'G');
         VideoCapture cap_;

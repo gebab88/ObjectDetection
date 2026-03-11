@@ -12,6 +12,7 @@
 #include "Detection_ORT.hpp"
 #include "VideoHandler.hpp"
 #include "Framework.hpp"
+#include "Timer.hpp"
 
 using namespace cv;
 using namespace std;
@@ -21,10 +22,10 @@ const float NMS_THRESHOLD = 0.5;
 const Size2f MODELSHAPE(Size(640,640));
 const int FILE_OR_WEBCAM = 1; //1: FILE or 2: WEBCAM
 const bool SHOW_FRAMES = false;
-const string VIDEO_INPUT_FILE ="../test.mov";
-const string CLASS_NAMES_FILE ="../coco.txt";
+const string VIDEO_INPUT_FILE ="./test.mov";
+const string CLASS_NAMES_FILE ="./coco.txt";
 // const string MODEL_FILE = "../yolo12m.onnx";
-const string MODEL_FILE = "../yolo26x.onnx";
+const string MODEL_FILE = "./yolo26x.onnx";
 const bool USE_CUDA = false; // Set to true to use CUDA backend (if available)
 FRAMEWORK backend = FRAMEWORK::OpenVINO; //OpenCV; OpenVINO
 
@@ -38,6 +39,8 @@ void signalHandler(int sig) {
 }
 
 int main() {
+    Timer timer;
+    timer.start();
     if (MODEL_FILE=="../yolo26m.onnx" or MODEL_FILE=="../yolo26x.onnx") {
         list<FRAMEWORK> supportedBackends = {
             FRAMEWORK::ONNXRuntime,
@@ -95,5 +98,7 @@ int main() {
             break;
         }
     }
+    timer.stop();
+    cout << "Total execution time: " << timer.getElapsedTime() << " seconds" << endl;
     return 0;
 }

@@ -1,3 +1,13 @@
 *.onnx
 venv
 compile_commands.json
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+build/  
+*.log
+*.avi
+ObjectDetection
+.DS_Store

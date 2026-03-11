@@ -32,11 +32,5 @@ class Detection{
 
     private:
         void change_modell_file();
-
-
-
-
-
-
 };
 #endif // DETECTION_HANDLER_HPP

@@ -24,6 +24,7 @@ set(SOURCE_FILES    main.cpp
         src/Detection_OpenCV.cpp
         src/Detection_OpenVINO.cpp
         src/Detection_ORT.cpp
+        src/Timer.cpp
 )
 
 # Add the executable, assuming your source file is named main.cpp
