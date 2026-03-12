@@ -1,6 +1,6 @@
 #include "Tracker.hpp"
 
-void track( const cv::Mat &frame, cv::Ptr<cv::Tracker> tracker, cv::Rect2i &trackingBox ) {
+void track(cv::Mat &frame, cv::Ptr<cv::Tracker> tracker, cv::Rect2i &trackingBox ) {
     // Update the tracker with the new frame
     if (tracker->update(frame, trackingBox)) {
         // Draw the tracking box

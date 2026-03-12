@@ -28,6 +28,6 @@ class Detection{
         std::vector<std::string> class_list;
 
     private:
-        void change_modell_file();
+        // void change_modell_file();
 };
 #endif // DETECTION_HANDLER_HPP

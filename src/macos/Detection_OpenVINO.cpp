@@ -6,8 +6,7 @@ Detection_OpenVINO::Detection_OpenVINO( float score_threshold,
                                         const string &model_file ) :
                                         Detection(score_threshold, model_shape, model_file){
     auto model = core_.read_model(model_file_);
-    // auto compiled = core_.compile_model(model, "AUTO");
-    auto compiled = core_.compile_model(model, "CPU", ov::hint::enable_hyper_threading(true));
+    auto compiled = core_.compile_model(model, "AUTO", ov::hint::enable_hyper_threading(true));
     infer_request_       = compiled.create_infer_request();
     auto input_port = compiled.input();
     input_ = ov::Tensor(  input_port.get_element_type(),
@@ -33,7 +32,7 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
 
     data_  = input_.data<float>();
     for (int c = 0; c < 3; ++c)
-        std::memcpy(data_ + c * plane_, chans[c].ptr<float>(), plane_ * sizeof(float));
+        std::memcpy(data_ + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
 
     infer_request_.set_input_tensor(input_);
 
@@ -74,9 +73,9 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
 
         box = cv::Rect(int(x1), int(y1), int(x2-x1), int(y2-y1));
 
-        rectangle(frame, box, Scalar(0,255,255), 1);
-        tsd::string label = class_list[ class_id ] + "  " + to_string(int(100 * score)) + "%" ;
-        std::cout << label << std::endl;
-        putText(frame, label, Point( box.x, box.y ), FONT_HERSHEY_SIMPLEX, 1, Scalar(255, 255, 255), 2);
+        rectangle(frame, box, cv::Scalar(0,255,255), 1);
+        std::string label = class_list[ class_id ] + "  " + std::to_string(int(100 * score)) + "%" ;
+        std::cout << label << '\n';
+        putText(frame, label, cv::Point( box.x, box.y ), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
     }
 }
