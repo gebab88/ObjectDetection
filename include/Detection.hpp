@@ -7,28 +7,25 @@
 #include <fstream>
 #include <filesystem>
 
-using namespace cv;
-using namespace std;
-
 
 class Detection{
     public:
-        Detection(   float score_threshold,
-                            Size2f model_shape,
-                            const string &model_file);
+        Detection(  float score_threshold,
+                    cv::Size2f model_shape,
+                    const std::string &model_file);
         virtual ~Detection()  = default;
 
-        void load_class_list(const string &class_file);
+        void load_class_list(const std::string &class_file);
         virtual void detect(cv::Mat &frame) = 0;
 
     protected:
-        string model_file_;
-        Mat blob_;
+        std::string model_file_;
+        cv::Mat blob_;
         float score_threshold_;
         cv::Mat resized_;
         float* data_;
-        Size2f model_shape_;
-        vector<string> class_list;
+        cv::Size2f model_shape_;
+        std::vector<std::string> class_list;
 
     private:
         void change_modell_file();

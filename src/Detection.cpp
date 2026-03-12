@@ -2,18 +2,18 @@
 
 Detection::Detection(
             float score_threshold,
-            Size2f model_shape,
-            const string &model_file ) :
+            cv::Size2f model_shape,
+            const std::string &model_file ) :
 
             score_threshold_(score_threshold),
             model_shape_(model_shape),
             model_file_(model_file) {
 }
 
-void Detection::load_class_list(const string &class_file) {
+void Detection::load_class_list(const std::string &class_file) {
     // change this txt file  to your txt file that contains labels
-    ifstream ifs(class_file);
-    string line;
+    std::ifstream ifs(class_file);
+    std::string line;
     while ( getline(ifs, line) ) {
         class_list.push_back(line);
     }
@@ -30,7 +30,3 @@ void Detection::change_modell_file() {
         this->model_file_.clear();
     }
 }
-
-
-
-

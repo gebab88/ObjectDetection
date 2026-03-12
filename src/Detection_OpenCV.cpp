@@ -1,41 +1,40 @@
 #include "Detection_OpenCV.hpp"
 
 Detection_OpenCV::Detection_OpenCV(const float score_threshold,
-                                   const Size2f model_shape,
-                                   const string &model_file,
-                                   const float &nms,
-                                   const bool &use_cuda) :
+                                   const cv::Size2f model_shape,
+                                   const std::string &model_file,
+                                   const float nms,
+                                   const bool use_cuda) :
                                     Detection(score_threshold, model_shape, model_file),
                                     nms_threshold_(nms),
                                     use_cuda_(use_cuda) {
-        net = dnn::readNet(model_file);
+        net = cv::dnn::readNet(model_file);
 
         if (use_cuda_) {
-            cout << "Running on CUDA" << endl <<endl;
-            net.setPreferableBackend(dnn::DNN_BACKEND_CUDA);
-            net.setPreferableTarget(dnn::DNN_TARGET_CUDA);
+            std::cout << "Running on CUDA" << std::endl << std::endl;
+            net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
+            net.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
         } else {
-            cout << "Running on CPU" << endl <<endl;
-            net.setPreferableBackend(dnn::DNN_BACKEND_OPENCV);
-            net.setPreferableTarget(dnn::DNN_TARGET_CPU);
+            std::cout << "Running on CPU" << std::endl << std::endl;
+            net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+            net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
         }
     }
-    Detection_OpenCV::~Detection_OpenCV() {
-    }
-    void Detection_OpenCV::detect( Mat &frame) {
+
+    void Detection_OpenCV::detect( cv::Mat &frame) {
         const float x_scale = (float)frame.cols / model_shape_.width;
         const float y_scale = (float)frame.rows / model_shape_.height;
 
         // Convert the image into a blob and set it as input to the network
-        cv::resize(frame, resized_, {640, 640});
-        dnn::blobFromImage(frame, blob_, 1.0/255.0, model_shape_, Scalar(), true, false);
+        //cv::resize(frame, resized_, {640, 640});
+        cv::dnn::blobFromImage(frame, blob_, 1.0/255.0, model_shape_, cv::Scalar(), true, false);
         net.setInput(blob_);
         net.forward(outs, net.getUnconnectedOutLayersNames());
 
     if (model_file_ == "yolo12m.onnx") {
-        vector<float> max_scores;
-        vector<int> classIds;
-        vector<cv::Rect> boxes;
+        std::vector<float> max_scores;
+        std::vector<int> classIds;
+        std::vector<cv::Rect> boxes;
 
         const int dimensions = outs[0].size[1];
         const int rows = outs[0].size[2];
@@ -49,7 +48,7 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
         for (int i = 0; i < rows; ++i, data_ += dimensions) {
             // Get class scores and find the class with the highest score
             cv::Mat scores(1, class_list.size(), CV_32FC1, data_ + 4);
-            Point class_id;
+            cv::Point class_id;
             double max_class_score;
             minMaxLoc(scores, 0, &max_class_score, 0, &class_id);
 
@@ -67,18 +66,18 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
                 const int top = int(y - 0.5 * h);
                 const int width = int(w);
                 const int height = int(h);
-                boxes.push_back( Rect(left, top, width, height) );
+                boxes.push_back( cv::Rect(left, top, width, height) );
             }
         }
 
         // Apply Non-Maximum Suppression
-        dnn::NMSBoxes(boxes, max_scores, score_threshold_, nms_threshold_, nms_result);
+        cv::dnn::NMSBoxes(boxes, max_scores, score_threshold_, nms_threshold_, nms_result);
 
         for ( auto idx : nms_result ) {
-            rectangle(frame, boxes[idx], Scalar(0,255,255), 1);
-            string label = class_list[ classIds[idx] ] + "  " + to_string(int(100 * max_scores[ idx ])) + "%" ;
-            cout << label << endl;
-            putText(frame, label, Point( boxes[idx].x, boxes[idx].y ), FONT_HERSHEY_SIMPLEX, 1, Scalar(255, 255, 255), 2);
+            cv::rectangle(frame, boxes[idx], cv::Scalar(0,255,255), 1);
+            std::string label = class_list[ classIds[idx] ] + "  " + std::to_string(int(100 * max_scores[ idx ])) + "%" ;
+            std::cout << label << '\n';
+            putText(frame, label, cv::Point( boxes[idx].x, boxes[idx].y ), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
         }
     } else if (model_file_=="yolo26m.onnx"){
         // YOLO26 Output Format (End-to-End): [Batch, Anzahl_Boxen, 6]
@@ -102,13 +101,14 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
             const float x2 = data_[2] * x_scale;
             const float y2 = data_[3] * y_scale;
             int class_id = (int)data_[5];
+            if (class_id < 0 || class_id >= (int)class_list.size()) continue;
 
-            Rect box(int(x1), int(y1), int(x2-x1), int(y2-y1));
+            cv::Rect box(int(x1), int(y1), int(x2-x1), int(y2-y1));
 
-            rectangle(frame, box, Scalar(0,255,255), 1);
-            string label = class_list[ class_id ] + "  " + to_string(int(100 * score)) + "%" ;
-            cout << label << endl;
-            putText(frame, label, Point( box.x, box.y ), FONT_HERSHEY_SIMPLEX, 1, Scalar(255, 255, 255), 2);
+            cv::rectangle(frame, box, cv::Scalar(0,255,255), 1);
+            std::string label = class_list[ class_id ] + "  " + std::to_string(int(100 * score)) + "%" ;
+            std::cout << label << std::endl;
+            putText(frame, label, cv::Point( box.x, box.y ), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
         }
     } else {
         // in progress

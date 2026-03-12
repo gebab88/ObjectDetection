@@ -13,11 +13,13 @@ class Detection_OpenVINO : public Detection {
     virtual ~Detection_OpenVINO() = default;
 
     void detect(Mat &frame) override;
+
     private:
     ov::Core core_;
     ov::Tensor input_, output_;
-    ov::InferRequest inter_request_;
+    ov::InferRequest infer_request_;
     size_t plane_;
+    std::vector<Mat> chans_;
 };
 
 

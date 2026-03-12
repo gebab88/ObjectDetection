@@ -3,9 +3,7 @@
 #include <opencv2/opencv.hpp>
 //#include <opencv2/tracking.hpp>
 
-using namespace cv;
-using namespace std;
 
-void track( Mat &frame, Ptr<Tracker> tracker, Rect2i &trackingBox );
+void track( cv::Mat &frame, cv::Ptr<cv::Tracker> tracker, cv::Rect2i &trackingBox );
 
 #endif // TRACKER_HPP
