@@ -11,3 +11,7 @@ build/
 *.avi
 ObjectDetection
 .DS_Store
+.vscode/
+onnxruntime/
+onnx
+src/.DS_Store
