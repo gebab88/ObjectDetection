@@ -18,8 +18,8 @@ void Detection::load_class_list(const std::string &class_file) {
         class_list.push_back(line);
     }
 }
-
-void Detection::change_modell_file() {
+ /*
+void Detection::change_model_file() {
     // Change Modell-File string --> shorten it
     size_t first_non_dot = this->model_file_.find_first_not_of('.');
     if (first_non_dot != std::string::npos) {
@@ -30,3 +30,4 @@ void Detection::change_modell_file() {
         this->model_file_.clear();
     }
 }
+*/
