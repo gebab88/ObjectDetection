@@ -8,11 +8,18 @@
 #include <csignal>
 
 #include "Detection_OpenCV.hpp"
-#include "Detection_OpenVINO.hpp"
+
 #include "Detection_ORT.hpp"
 #include "VideoHandler.hpp"
 #include "Framework.hpp"
 #include "Timer.hpp"
+
+#ifdef __APPLE__
+    #include "Detection_OpenVINO.hpp"
+#elif __linux__
+    // Linux-spezifische Includes
+#endif
+
 
 using namespace cv;
 using namespace std;
@@ -41,7 +48,7 @@ void signalHandler(int sig) {
 int main() {
     Timer timer;
     timer.start();
-    if (MODEL_FILE=="../yolo26m.onnx" or MODEL_FILE=="../yolo26x.onnx") {
+    if (MODEL_FILE=="./yolo26m.onnx" or MODEL_FILE=="./yolo26x.onnx") {
         list<FRAMEWORK> supportedBackends = {
             FRAMEWORK::ONNXRuntime,
             FRAMEWORK::OpenVINO
