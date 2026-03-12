@@ -7,12 +7,11 @@
 #include <fstream>
 #include <csignal>
 
-#include "Detection_OpenCV.hpp"
-
-#include "Detection_ORT.hpp"
 #include "VideoHandler.hpp"
 #include "Framework.hpp"
 #include "Timer.hpp"
+#include "Detection_OpenCV.hpp"
+#include "Detection_ORT.hpp"
 
 #ifdef __APPLE__
     #include "Detection_OpenVINO.hpp"
@@ -20,28 +19,24 @@
     // Linux-spezifische Includes
 #endif
 
-
-using namespace cv;
-using namespace std;
-
 const float SCORE_THRESHOLD = 0.4;
 const float NMS_THRESHOLD = 0.5;
-const Size2f MODELSHAPE(Size(640,640));
+const cv::Size2f MODELSHAPE(cv::Size(640,640));
 const int FILE_OR_WEBCAM = 1; //1: FILE or 2: WEBCAM
 const bool SHOW_FRAMES = false;
-const string VIDEO_INPUT_FILE ="./test.mov";
-const string CLASS_NAMES_FILE ="./coco.txt";
-// const string MODEL_FILE = "../yolo12m.onnx";
-const string MODEL_FILE = "./yolo26x.onnx";
+const std::string VIDEO_INPUT_FILE ="./test.mov";
+const std::string CLASS_NAMES_FILE ="./coco.txt";
+// const std::string MODEL_FILE = "../yolo12m.onnx";
+const std::string MODEL_FILE = "./yolo26x.onnx";
 const bool USE_CUDA = false; // Set to true to use CUDA backend (if available)
-FRAMEWORK backend = FRAMEWORK::OpenVINO; //OpenCV; OpenVINO
+FRAMEWORK backend = FRAMEWORK::ONNXRuntime; //OpenCV; OpenVINO
 
 bool ret = true;
 
 // Signal handler function
 void signalHandler(int sig) {
     fflush(stdout);
-    cout << "Interrupted by user: Signal " << sig << endl;
+    std::cout << "Interrupted by user: Signal " << sig << std::endl;
     ret = false;
 }
 
@@ -49,11 +44,11 @@ int main() {
     Timer timer;
     timer.start();
     if (MODEL_FILE=="./yolo26m.onnx" or MODEL_FILE=="./yolo26x.onnx") {
-        list<FRAMEWORK> supportedBackends = {
+        std::list<FRAMEWORK> supportedBackends = {
             FRAMEWORK::ONNXRuntime,
             FRAMEWORK::OpenVINO
         };
-        if ( find(supportedBackends.begin(), supportedBackends.end(), backend ) == supportedBackends.end() ) {
+        if ( std::find(supportedBackends.begin(), supportedBackends.end(), backend ) == supportedBackends.end() ) {
             return 1;
         };
     }
@@ -62,10 +57,17 @@ int main() {
     std::unique_ptr<Detection> detection;
     if (backend == FRAMEWORK::OpenCV) {
         detection = std::make_unique<Detection_OpenCV>(SCORE_THRESHOLD, MODELSHAPE, MODEL_FILE, NMS_THRESHOLD, USE_CUDA);
-    } else if (backend == FRAMEWORK::OpenVINO) {
-        detection = std::make_unique<Detection_OpenVINO>(SCORE_THRESHOLD, MODELSHAPE, MODEL_FILE);
     } else if (backend ==  FRAMEWORK::ONNXRuntime) {
         detection = std::make_unique<Detection_ORT>(SCORE_THRESHOLD, MODELSHAPE, MODEL_FILE);
+    } 
+    #ifdef __APPLE__
+    else if (backend == FRAMEWORK::OpenVINO) {
+        detection = std::make_unique<Detection_OpenVINO>(SCORE_THRESHOLD, MODELSHAPE, MODEL_FILE);
+    }
+    #endif
+    else {
+        std::cerr << "Unsupported backend for this platform." << std::endl;
+        exit(EXIT_FAILURE);
     }
 
     switch (FILE_OR_WEBCAM ) {
@@ -76,7 +78,7 @@ int main() {
             video.open_webcam(0); // Default camera index 0
             break;
         default:
-            cerr << "Please select mode: VIDEO or WEBCAM?" << endl;
+            std::cerr << "Please select mode: VIDEO or WEBCAM?" << std::endl;
             exit(EXIT_FAILURE);
     }
 
@@ -85,13 +87,13 @@ int main() {
     // Load class names
     detection->load_class_list(CLASS_NAMES_FILE);
 
-    Mat frame;
+    cv::Mat frame;
     while (ret) {
         // Read the next frame
         ret = video.read(frame);
         signal(SIGINT, signalHandler);
         if (ret) {
-            cout << "Read a new frame: " << frame.cols << "x" << frame.rows << endl;
+            std::cout << "Read a new frame: " << frame.cols << "x" << frame.rows << std::endl;
             video.crop_frame(frame);
             // track(formatted_frame, tracker, trackingBox);
             // Run detection on the input image
@@ -101,11 +103,11 @@ int main() {
             }
             video.write(frame);  // Write the processed frame to the output video
         } else {
-            cout << "No more frames to read or error occurred." << endl;
+            std::cout << "No more frames to read or error occurred." << std::endl;
             break;
         }
     }
     timer.stop();
-    cout << "Total execution time: " << timer.getElapsedTime() << " seconds" << endl;
+    std::cout << "Total execution time: " << timer.getElapsedTime() << " seconds" << std::endl;
     return 0;
 }

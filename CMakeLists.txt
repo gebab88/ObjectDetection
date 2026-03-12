@@ -1,17 +1,17 @@
 cmake_minimum_required(VERSION 3.10)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.7" CACHE STRING "Minimum macOS version")
-project(ObjectDetection)
 
 # Set the project name
 project(ObjectDetection)
+
+message(STATUS "System: ${CMAKE_SYSTEM_NAME}")
 
 # Set the C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-# Find OpenCV
 find_package(OpenCV REQUIRED)
-
+find_package(Threads REQUIRED)
 
 # ONNX Runtime path (local installation)
 set(ORT_DIR "${CMAKE_SOURCE_DIR}/onnxruntime" CACHE PATH "ONNX Runtime directory")
@@ -42,14 +42,26 @@ if(APPLE)
         openvino::runtime
         ${ORT_DIR}/build/MacOS/Release/libonnxruntime.dylib
     )
-
-elseif(UNIX AND NOT APPLE)
-    message(STATUS "Building for Linux")
-    set(PLATFORM_SOURCES
-        src/linux/system.cpp
+    set(PLATFORM_INCLUDE_DIRS
+        ${ORT_DIR}/include/onnxruntime/core/session
+        ${ORT_DIR}/include/onnxruntime/core/providers/coreml
+        ${ORT_DIR}/include/onnxruntime/core/providers/cpu
     )
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64" AND NOT APPLE)
+    message(STATUS "ARM-Architektur erkannt: ${CMAKE_SYSTEM_PROCESSOR}")
+    message(STATUS "Building for ARM on Linux")
+
+    set(PLATFORM_SOURCES)
+    
     set(PLATFORM_LIBS
         ${OpenCV_LIBS}
+        ${ORT_DIR}/lib/libonnxruntime.so
+        Threads::Threads
+        ${CMAKE_DL_LIBS}
+    )
+    set(PLATFORM_INCLUDE_DIRS
+        ${ORT_DIR}/include/onnxruntime/core/session
+        ${ORT_DIR}/include/onnxruntime/core/providers/cpu
     )
 endif()
 
@@ -64,9 +76,7 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE
                                     include
                                     ${OpenCV_DIRS}
-                                    ${ORT_DIR}/include/onnxruntime/core/session
-                                    ${ORT_DIR}/include/onnxruntime/core/providers/coreml
-                                    ${ORT_DIR}/include/onnxruntime/core/providers/cpu
+                                    ${PLATFORM_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
