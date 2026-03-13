@@ -19,8 +19,8 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 | Platform        | OpenCV DNN | ONNX Runtime | OpenVINO |
 |-----------------|:----------:|:------------:|:--------:|
-| macOS (x86/ARM) | ✅          | ✅ + CoreML   | ✅        |
-| Linux (aarch64) | ✅          | ✅ + XNNPACK  | ❌ (TODO) |
+| macOS (x86/ARM) | ✅          | ✅ /w CoreML   | ✅        |
+| Linux (aarch64) | ✅          | ✅ /W XNNPACK  | ❌ (not supported) |
 
 ---
 
@@ -60,7 +60,7 @@ ObjectDetection/
         └── libonnxruntime.so               # Linux / ARM
 ```
 
-### OpenVINO (macOS only)
+### OpenVINO (Intel only)
 
 Install OpenVINO 2025.x to `/opt/intel/openvino_2025.x.x/`. The CMakeLists.txt expects this path by default.
 
@@ -122,11 +122,11 @@ The processed video is saved to `output.avi` in the working directory.
 
 ### Supported Models
 
-| Model file        | Backend compatibility          | Notes                          |
-|-------------------|-------------------------------|--------------------------------|
-| `yolo12m.onnx`    | OpenCV DNN, ONNX Runtime      | Standard YOLO output (NMS required) |
-| `yolo26m.onnx`    | ONNX Runtime, OpenVINO        | End-to-end (NMS built-in)      |
-| `yolo26x.onnx`    | ONNX Runtime, OpenVINO        | End-to-end, larger variant     |
+| Model file        | Backend compatibility              | Notes                          |
+|-------------------|-------------------------------     |--------------------------------|
+| `yolo12m.onnx`    | OpenCV DNN, ONNX Runtime, OpenVINO | Standard YOLO output (NMS required) |
+| `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
+| `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
 
 > **Note:** The OpenCV DNN backend only supports `yolo12m.onnx`. Using `yolo26*.onnx` with OpenCV DNN will fall into the unimplemented `else` branch.
 
