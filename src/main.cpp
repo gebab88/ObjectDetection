@@ -41,6 +41,8 @@ void signalHandler(int sig) {
 }
 
 int main() {
+    std::cout << cv::getBuildInformation() << std::endl;
+
     Timer timer;
     timer.start();
     if (MODEL_FILE=="./yolo26m.onnx" or MODEL_FILE=="./yolo26x.onnx") {
@@ -52,7 +54,7 @@ int main() {
             return 1;
         };
     }
-    VideoHandler video("output.avi");
+    VideoHandler video("output.mp4");
 
     std::unique_ptr<Detection> detection;
     if (backend == FRAMEWORK::OpenCV) {
