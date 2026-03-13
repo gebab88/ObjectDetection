@@ -2,8 +2,8 @@
 
 
 Detection_OpenVINO::Detection_OpenVINO( float score_threshold,
-                                        Size2f model_shape,
-                                        const string &model_file ) :
+                                        cv::Size2f model_shape,
+                                        const std::string &model_file ) :
                                         Detection(score_threshold, model_shape, model_file){
     auto model = core_.read_model(model_file_);
     auto compiled = core_.compile_model(model, "AUTO", ov::hint::enable_hyper_threading(true));
@@ -13,7 +13,7 @@ Detection_OpenVINO::Detection_OpenVINO( float score_threshold,
                                 input_port.get_shape()
                                 );
     plane_ = 640 * 640;
-    chans_ = std::vector<Mat>(3);
+    chans_ = std::vector<cv::Mat>(3);
 };
 
 void Detection_OpenVINO::detect( cv::Mat &frame) {

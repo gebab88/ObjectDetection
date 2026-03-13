@@ -1,3 +1,5 @@
+#include <filesystem>
+
 #include "VideoHandler.hpp"
 
 // int VideoHandler::fourcc = static_cast<int>(cap.get(cv::CAP_PROP_FOURCC));
@@ -38,8 +40,20 @@ void VideoHandler::open_webcam(const int &camera_index) {
 }
 
 void VideoHandler::set_video_writer() {
+    // Datei löschen falls sie bereits existiert
+    if (std::filesystem::exists(output_path_)) {
+        std::filesystem::remove(output_path_);
+        std::cout << "Removed existing file: " << output_path_ << std::endl;
+    }
     int min_side_len = std::min(frame_height, frame_width);
-    bool ret = output_.open(output_path_, codec_, fps, cv::Size(min_side_len, min_side_len));
+
+    #ifdef __APPLE__
+        bool ret = output_.open(output_path_, cv::CAP_AVFOUNDATION, codec_, fps, cv::Size(min_side_len, min_side_len), true);
+    #elif __linux__
+        // Linux-spezifischer Code
+        bool ret = output_.open(output_path_, codec_, fps, cv::Size(min_side_len, min_side_len), true);
+    #endif
+    
     if (!ret) {
         std::cerr << "Error: Could not open video writer with path: " << output_path_ << std::endl;
         exit(EXIT_FAILURE);

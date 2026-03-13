@@ -15,3 +15,7 @@ ObjectDetection
 onnxruntime/
 onnx
 src/.DS_Store
+*.xml
+.idea/
+*.mp4
+*.ninja*

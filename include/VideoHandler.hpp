@@ -7,7 +7,6 @@ class VideoHandler {
         float fps;
         int frame_width;
         int frame_height;
-        int min_side_len;
         
         cv::Mat frame;
 
@@ -26,8 +25,14 @@ class VideoHandler {
     private:
         const std::string output_path_;
         const int camera_index = 0;
-        // const int codec_ = cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
-        const int codec_ = cv::VideoWriter::fourcc('X', 'V', 'I', 'D');
+        #ifdef __APPLE__
+            const int codec_ = cv::VideoWriter::fourcc('a', 'v', 'c', '1');
+        #elif __linux__
+        // Linux-spezifischer Code
+            const int codec_ = cv::VideoWriter::fourcc('X', 'V', 'I', 'D');
+        #endif
+
+        
         cv::VideoCapture cap_;
         cv::VideoWriter output_;
 };
