@@ -22,6 +22,9 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
     }
 
     void Detection_OpenCV::detect( cv::Mat &frame) {
+        nms_result.clear();
+        outs.clear();
+        
         const float x_scale = (float)frame.cols / model_shape_.width;
         const float y_scale = (float)frame.rows / model_shape_.height;
 
