@@ -75,7 +75,6 @@ add_executable(${PROJECT_NAME}
 # Includes
 target_include_directories(${PROJECT_NAME} PRIVATE
                                     include
-                                    ${OpenCV_DIRS}
                                     ${PLATFORM_INCLUDE_DIRS}
 )
 

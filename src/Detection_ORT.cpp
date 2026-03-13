@@ -1,17 +1,21 @@
 #include "Detection_ORT.hpp"
 
+Ort::SessionOptions Detection_ORT::make_session_opts() {
+    Ort::SessionOptions opts;
+    opts.SetIntraOpNumThreads(4);
+    opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    return opts;
+}
+
 Detection_ORT::Detection_ORT(float score_threshold,
                             cv::Size2f model_shape,
                             const std::string &model_file) :
                             Detection(score_threshold, model_shape, model_file),
                             env_(Ort::Env(ORT_LOGGING_LEVEL_VERBOSE, "yolo")),
+                            session_opts_(make_session_opts()),
                             session_(env_, model_file_.c_str(), session_opts_),
                             input_name_(session_.GetInputNameAllocated(0, allocator_).get()),
                             output_name_(session_.GetOutputNameAllocated(0, allocator_).get()) {
-    // env_ = Ort::Env(ORT_LOGGING_LEVEL_VERBOSE, "yolo");
-    session_opts_.SetIntraOpNumThreads(4);
-    session_opts_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-
     #ifdef __APPLE__
         // macOS-spezifischer Code
         // CoreML aktivieren → nutzt automatisch AMD Radeon via Metal

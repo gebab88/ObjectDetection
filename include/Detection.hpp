@@ -26,8 +26,5 @@ class Detection{
         float* data_;
         cv::Size2f model_shape_;
         std::vector<std::string> class_list;
-
-    private:
-        // void change_modell_file();
 };
 #endif // DETECTION_HANDLER_HPP

@@ -23,6 +23,8 @@ class Detection_ORT : public Detection {
     void detect(cv::Mat &frame) override;
 
     private:
+    static Ort::SessionOptions make_session_opts();
+    
     Ort::Env                          env_;
     Ort::SessionOptions               session_opts_;
     Ort::AllocatorWithDefaultOptions  allocator_;
