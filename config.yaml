@@ -1,0 +1,22 @@
+detection:
+  score_threshold: 0.4
+  nms_threshold: 0.5
+
+model:
+  model_file: "./yolo26x.onnx"
+  class_names_file: "./coco.txt"
+  model_width: 640
+  model_height: 640
+
+backend:
+  framework: "OpenVINO"   # OpenCV | OpenVINO | ONNXRuntime
+  use_cuda: false
+
+input:
+  source: 1               # 1 = File | 2 = Webcam
+  webcam_index: 0
+  video_input_file: "./test.mov"
+  video_output_file: "./output.mp4"
+
+display:
+  show_frames: false
