@@ -13,7 +13,7 @@ backend:
   use_cuda: false
 
 input:
-  source: 1               # 1 = File | 2 = Webcam
+  source: 2               # 1 = File | 2 = Webcam
   webcam_index: 0
   video_input_file: "test.mov"
   video_output_file: "output.mp4"
