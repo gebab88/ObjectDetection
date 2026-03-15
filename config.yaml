@@ -3,8 +3,8 @@ detection:
   nms_threshold: 0.5
 
 model:
-  model_file: "./yolo26x.onnx"
-  class_names_file: "./coco.txt"
+  model_file: "yolo26x.onnx"
+  class_names_file: "coco.txt"
   model_width: 640
   model_height: 640
 
@@ -15,8 +15,8 @@ backend:
 input:
   source: 1               # 1 = File | 2 = Webcam
   webcam_index: 0
-  video_input_file: "./test.mov"
-  video_output_file: "./output.mp4"
+  video_input_file: "test.mov"
+  video_output_file: "output.mp4"
 
 display:
   show_frames: false

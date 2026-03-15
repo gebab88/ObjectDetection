@@ -13,7 +13,7 @@ class Detection_OpenCV : public Detection {
                             const std::string &model_file,
                             const float nms,
                             const bool use_cuda);
-    ~Detection_OpenCV() = default;;
+    ~Detection_OpenCV() = default;
 
     void detect( cv::Mat &frame ) override;
     private:
