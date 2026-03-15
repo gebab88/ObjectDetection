@@ -4,6 +4,25 @@ Ort::SessionOptions Detection_ORT::make_session_opts() {
     Ort::SessionOptions opts;
     // opts.SetIntraOpNumThreads(4);
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    
+    #ifdef __APPLE__
+        // macOS-spezifischer Code
+        // CoreML aktivieren → nutzt automatisch AMD Radeon via Metal
+        uint32_t coreml_flags = 0;
+        // Optional: nur GPU erzwingen:
+        // coreml_flags |= COREML_FLAG_USE_CPU_ONLY;  // zum Deaktivieren
+        OrtStatus* status = OrtSessionOptionsAppendExecutionProvider_CoreML(opts, coreml_flags);
+        if (status != nullptr) {
+            std::cerr << "[Warning] CoreML nicht verfügbar: "
+                  << Ort::GetApi().GetErrorMessage(status) << "\n";
+            Ort::GetApi().ReleaseStatus(status);
+        }
+    #elif __aarch64__
+        // Linux-spezifischer Code
+        // XNNPACK aktivieren → nutzt automatisch verfügbare CPU-Features
+        opts.AppendExecutionProvider("XNNPACK");
+    #endif
+
     return opts;
 }
 
@@ -16,28 +35,12 @@ Detection_ORT::Detection_ORT(float score_threshold,
                             session_(env_, model_file_.c_str(), session_opts_),
                             input_name_(session_.GetInputNameAllocated(0, allocator_).get()),
                             output_name_(session_.GetOutputNameAllocated(0, allocator_).get()) {
-    #ifdef __APPLE__
-        // macOS-spezifischer Code
-        // CoreML aktivieren → nutzt automatisch AMD Radeon via Metal
-        uint32_t coreml_flags = 0;
-        // Optional: nur GPU erzwingen:
-        // coreml_flags |= COREML_FLAG_USE_CPU_ONLY;  // zum Deaktivieren
-        OrtStatus* status = OrtSessionOptionsAppendExecutionProvider_CoreML(session_opts_, coreml_flags);
-        if (status != nullptr) {
-            std::cerr << "[Warning] CoreML nicht verfügbar: "
-                  << Ort::GetApi().GetErrorMessage(status) << "\n";
-            Ort::GetApi().ReleaseStatus(status);
-        }
-    #elif __aarch64__
-        // Linux-spezifischer Code
-        // XNNPACK aktivieren → nutzt automatisch verfügbare CPU-Features
-        session_opts_.AppendExecutionProvider("XNNPACK");
-    #endif
+
 
     allocator_ = Ort::AllocatorWithDefaultOptions();
 
     plane_ = 640 * 640;
-    input_ = std::vector<float>(3 * 640 * 640);
+    input_ = std::vector<float>(3 * plane_);
     chans_ = std::vector<cv::Mat>(3);
 
     std::cout << "[YoloDetector] Modell geladen: " << model_file_ << "\n";

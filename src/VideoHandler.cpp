@@ -10,6 +10,7 @@ VideoHandler::~VideoHandler(){
         cap_.release();
         output_.release();
         std::cout << "Released video resources." << std::endl;
+        cv::destroyAllWindows();
 }
 
 void VideoHandler::open_file(const std::string &input_path) {
@@ -88,7 +89,7 @@ void VideoHandler::printVideoProperties(){
 void VideoHandler::showFrame( const std::string &windowName, const cv::Mat &frame ) {
         cv::imshow(windowName, frame);
         cv::waitKey(1);
-        cv::destroyAllWindows();  // Close the window after displaying each frame
+        // cv::destroyAllWindows();  // Close the window after displaying each frame
 }
 
 void VideoHandler::write( cv::Mat &frame ) {
