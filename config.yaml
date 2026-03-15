@@ -9,7 +9,7 @@ model:
   model_height: 640
 
 backend:
-  framework: "OpenVINO"   # OpenCV | OpenVINO | ONNXRuntime
+  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime
   use_cuda: false
 
 input:

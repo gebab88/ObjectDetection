@@ -6,6 +6,7 @@
 #include <iostream>
 #include <fstream>
 #include <csignal>
+#include <filesystem>
 
 
 #define USE_YAML_CONFIG
@@ -25,9 +26,7 @@
 
 volatile sig_atomic_t ret = 1;
 
-void signalHandler(int sig) {
-    fflush(stdout);
-    std::cout << "Interrupted by user: Signal " << sig << std::endl;
+void signalHandler(int /*sig*/) {
     ret = false;
 }
 
@@ -36,7 +35,7 @@ int main() {
 
     // ── Load config ───────────────────────────────────────────────────────────
 #if defined(USE_YAML_CONFIG)
-    const Config cfg = loadConfigYAML("./config.yaml");
+    const Config cfg = loadConfigYAML("config.yaml");
 #else
     const Config cfg;  // use default values from struct
 #endif
@@ -44,7 +43,8 @@ int main() {
     Timer timer;
     timer.start();
 
-    if (cfg.model_file == "./yolo26m.onnx" || cfg.model_file == "./yolo26x.onnx") {
+    const auto fname = std::filesystem::path(cfg.model_file).filename().string();
+    if (fname == "yolo26m.onnx" || fname == "yolo26x.onnx") {
         std::list<FRAMEWORK> supportedBackends = {
             FRAMEWORK::ONNXRuntime,
             FRAMEWORK::OpenVINO
@@ -89,22 +89,17 @@ int main() {
 
     cv::Mat frame;
     signal(SIGINT, signalHandler);
-    while (ret) {
-        ret = video.read(frame);
-        if (ret) {
-            std::cout << "Read a new frame: " << frame.cols << "x" << frame.rows << std::endl;
-            video.crop_frame(frame);
-            detection->detect(frame);
-            if (cfg.show_frames) {
-                video.showFrame("Object Detector", frame);
-            }
-            video.write(frame);
-        } else {
-            std::cout << "No more frames to read or error occurred." << std::endl;
-            break;
+    while (video.read(frame) && ret) {
+        std::cout << "Read a new frame: " << frame.cols << "x" << frame.rows << std::endl;
+        video.crop_frame(frame);
+        detection->detect(frame);
+        if (cfg.show_frames) {
+            video.showFrame("Object Detector", frame);
         }
+        video.write(frame);
     }
 
+    std::cout << "No more frames to read or error occurred." << std::endl;
     timer.stop();
     std::cout << "Total execution time: " << timer.getElapsedTime() << " seconds" << std::endl;
     return 0;
