@@ -23,7 +23,7 @@
     // Linux-spezifische Includes
 #endif
 
-bool ret = true;
+volatile sig_atomic_t ret = 1;
 
 void signalHandler(int sig) {
     fflush(stdout);
@@ -88,9 +88,9 @@ int main() {
     detection->load_class_list(cfg.class_names_file);
 
     cv::Mat frame;
+    signal(SIGINT, signalHandler);
     while (ret) {
         ret = video.read(frame);
-        signal(SIGINT, signalHandler);
         if (ret) {
             std::cout << "Read a new frame: " << frame.cols << "x" << frame.rows << std::endl;
             video.crop_frame(frame);
