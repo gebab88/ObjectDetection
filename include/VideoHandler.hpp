@@ -7,8 +7,6 @@ class VideoHandler {
         float fps;
         int frame_width;
         int frame_height;
-        
-        cv::Mat frame;
 
         VideoHandler(std::string output_path);
         ~VideoHandler();

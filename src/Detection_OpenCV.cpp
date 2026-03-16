@@ -5,9 +5,10 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
                                    const std::string &model_file,
                                    const float nms,
                                    const bool use_cuda) :
-                                    Detection(score_threshold, model_shape, model_file),
-                                    nms_threshold_(nms),
-                                    use_cuda_(use_cuda) {
+                                   
+                                   Detection(score_threshold, model_shape, model_file),
+                                   nms_threshold_(nms),
+                                   use_cuda_(use_cuda) {
         net = cv::dnn::readNet(model_file);
 
         if (use_cuda_) {
@@ -33,8 +34,10 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
         cv::dnn::blobFromImage(frame, blob_, 1.0/255.0, model_shape_, cv::Scalar(), true, false);
         net.setInput(blob_);
         net.forward(outs, net.getUnconnectedOutLayersNames());
+    
 
-    if (model_file_ == "yolo12m.onnx") {
+    
+    if (model_format_ == MODEL_FORMAT::YOLO12) {
         std::vector<float> max_scores;
         std::vector<int> classIds;
         std::vector<cv::Rect> boxes;
@@ -82,7 +85,7 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
             std::cout << label << '\n';
             putText(frame, label, cv::Point( boxes[idx].x, boxes[idx].y ), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
         }
-    } else if (model_file_=="yolo26m.onnx"){
+    } else if (model_format_ == MODEL_FORMAT::YOLO26) {
         // YOLO26 Output Format (End-to-End): [Batch, Anzahl_Boxen, 6]
         // Die 6 Werte sind: [x1, y1, x2, y2, Score, Klasse]
 
