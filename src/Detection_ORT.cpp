@@ -55,7 +55,10 @@ void Detection_ORT::detect( cv::Mat &frame) {
     const float x_scale = (float)frame.cols / model_shape_.width;
     const float y_scale = (float)frame.rows / model_shape_.height;
 
-    cv::resize(frame, resized_, {640, 640});
+    const int W = static_cast<int>(model_shape_.width);
+    const int H = static_cast<int>(model_shape_.height);
+
+    cv::resize(frame, resized_, {W, H});
 
     // BGR → RGB, uint8 → float32, normalisieren [0,1]
     resized_.convertTo(blob_, CV_32F, 1.0 / 255.0);
@@ -68,7 +71,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
     for (int c = 0; c < 3; ++c)
         std::memcpy(input_.data() + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
 
-    std::array<int64_t, 4> input_shape = {1, 3, 640, 640};
+    std::array<int64_t, 4> input_shape = {1, 3, static_cast<int64_t>(H), static_cast<int64_t>(W)};
     auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
     Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info,
                                                             input_.data(), input_.size(),
