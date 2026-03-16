@@ -14,6 +14,7 @@
 
 #include "VideoHandler.hpp"
 #include "Framework.hpp"
+#include "Source.hpp"
 #include "Timer.hpp"
 #include "Detection_OpenCV.hpp"
 #include "Detection_ORT.hpp"
@@ -62,26 +63,25 @@ int main() {
     } else if (cfg.framework == FRAMEWORK::ONNXRuntime) {
         detection = std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file);
     }
+
     #ifdef __APPLE__
     else if (cfg.framework == FRAMEWORK::OpenVINO) {
         detection = std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape, cfg.model_file);
     }
     #endif
+
     else {
         std::cerr << "Unsupported backend for this platform." << std::endl;
         exit(EXIT_FAILURE);
     }
 
-    switch (cfg.source) {
-        case 1:
-            video.open_file(cfg.video_input_file);
-            break;
-        case 2:
-            video.open_webcam(cfg.webcam_index);
-            break;
-        default:
-            std::cerr << "Please select mode: VIDEO or WEBCAM?" << std::endl;
-            exit(EXIT_FAILURE);
+    if (cfg.source == SOURCE::VIDEO) {
+        video.open_file(cfg.video_input_file);
+    } else if (cfg.source == SOURCE::WEBCAM) {
+        video.open_webcam(cfg.webcam_index);
+    } else {
+        std::cerr << "Please select a valid source: VIDEO or WEBCAM?" << std::endl;
+        exit(EXIT_FAILURE);
     }
 
     video.set_video_writer();

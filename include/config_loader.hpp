@@ -4,7 +4,9 @@
 #include <string>
 #include <iostream>
 #include <opencv2/core.hpp>
+
 #include "Framework.hpp"
+#include "Source.hpp"
 
 // ─── Config struct ────────────────────────────────────────────────────────────
 struct Config {
@@ -13,8 +15,8 @@ struct Config {
     float        nms_threshold    = 0.5f;
     
     // Model
-    std::string  model_file       = "./yolo26x.onnx";
-    std::string  class_names_file = "./coco.txt";
+    std::string  model_file       = "yolo26x.onnx";
+    std::string  class_names_file = "coco.txt";
     cv::Size2f   model_shape      = cv::Size(640, 640);
 
     // Backend
@@ -22,10 +24,10 @@ struct Config {
     bool         use_cuda         = false;
 
     // Input / Output
-    int          source           = 1;
+    SOURCE       source           = SOURCE::VIDEO;
     int          webcam_index     = 0;
-    std::string  video_input_file = "./test.mov";
-    std::string  video_output_file= "./output.mp4";
+    std::string  video_input_file = "test.mov";
+    std::string  video_output_file= "output.mp4";
 
     // Display
     bool         show_frames      = false;
@@ -38,7 +40,16 @@ inline FRAMEWORK frameworkFromString(const std::string& s) {
     if (s == "ONNXRuntime") return FRAMEWORK::ONNXRuntime;
     std::cerr << "Unknown framework: " << s << " – falling back to OpenCV." << std::endl;
     return FRAMEWORK::OpenCV;
-}
+};
+
+// ─── Helper: string → SOURCE ──────────────────────────────────────────────
+inline SOURCE sourceFromString(const std::string& s) {
+    if (s == "VIDEO")   return SOURCE::VIDEO;
+    if (s == "WEBCAM")  return SOURCE::WEBCAM;
+    std::cerr << "Unknown source: " << s << " – falling back to VIDEO." << std::endl;
+    return SOURCE::VIDEO;
+};
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // YAML  (requires yaml-cpp – https://github.com/jbeder/yaml-cpp)
@@ -70,7 +81,7 @@ inline Config loadConfigYAML(const std::string& path) {
     cfg.framework         = frameworkFromString(y["backend"]["framework"].as<std::string>());
     cfg.use_cuda          = y["backend"]["use_cuda"].as<bool>();
 
-    cfg.source            = y["input"]["source"].as<int>();
+    cfg.source            = sourceFromString(y["input"]["source"].as<std::string>());
     cfg.webcam_index      = y["input"]["webcam_index"].as<int>();
     cfg.video_input_file  = y["input"]["video_input_file"].as<std::string>();
     cfg.video_output_file = y["input"]["video_output_file"].as<std::string>();
