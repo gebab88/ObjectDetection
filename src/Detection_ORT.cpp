@@ -8,10 +8,11 @@ Ort::SessionOptions Detection_ORT::make_session_opts() {
     #ifdef __APPLE__
         // macOS-spezifischer Code
         // CoreML aktivieren → nutzt automatisch AMD Radeon via Metal
-        uint32_t coreml_flags = 0;
+        //uint32_t coreml_flags = 0x010;  // COREML_FLAG_USE_METAL (ab ORT 1.18) – nutzt GPU, wenn verfügbar
+        uint32_t coreml_flag = COREML_FLAG_CREATE_MLPROGRAM;  // Standardmäßig GPU nutzen, falls verfügbar
         // Optional: nur GPU erzwingen:
         // coreml_flags |= COREML_FLAG_USE_CPU_ONLY;  // zum Deaktivieren
-        OrtStatus* status = OrtSessionOptionsAppendExecutionProvider_CoreML(opts, coreml_flags);
+        OrtStatus* status = OrtSessionOptionsAppendExecutionProvider_CoreML(opts, coreml_flag);
         if (status != nullptr) {
             std::cerr << "[Warning] CoreML nicht verfügbar: "
                   << Ort::GetApi().GetErrorMessage(status) << "\n";
