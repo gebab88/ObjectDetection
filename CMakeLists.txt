@@ -96,3 +96,17 @@ message(STATUS "    include path: ${OpenCV_INCLUDE_DIRS}")
 message(STATUS "yaml-cpp: ${YAML_CPP_LIBRARIES}")
 message(STATUS "yaml-cpp libraries: ${YAML_CPP_LIBRARIES}")
 message(STATUS "yaml-cpp includes:  ${YAML_CPP_INCLUDE_DIR}")
+
+# Enable testing and add GoogleTest-based unit tests
+enable_testing()
+
+# Add tests if GTest is available; user must have GTest installed or fetched
+find_package(GTest QUIET)
+if (GTest_FOUND)
+    add_executable(tests_runner tests/test_framework.cpp)
+    target_include_directories(tests_runner PRIVATE include)
+    target_link_libraries(tests_runner PRIVATE GTest::gtest_main ${OpenCV_LIBS})
+    add_test(NAME framework_tests COMMAND tests_runner)
+else()
+    message(WARNING "GTest not found: tests will not be built. Install GTest or configure CMake accordingly.")
+endif()
