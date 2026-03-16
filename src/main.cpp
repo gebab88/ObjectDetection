@@ -44,8 +44,9 @@ int main() {
     Timer timer;
     timer.start();
 
-    const auto fname = std::filesystem::path(cfg.model_file).filename().string();
-    if (fname == "yolo26m.onnx" || fname == "yolo26x.onnx") {
+    const auto model_format = detectModelFormat(cfg.model_file);
+
+    if (model_format == MODEL_FORMAT::YOLO26) {
         std::list<FRAMEWORK> supportedBackends = {
             FRAMEWORK::ONNXRuntime,
             FRAMEWORK::OpenVINO
@@ -53,6 +54,16 @@ int main() {
         if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
             return 1;
         }
+    } else if (model_format == MODEL_FORMAT::YOLO12) {
+        std::list<FRAMEWORK> supportedBackends = {
+            FRAMEWORK::OpenCV
+        };
+        if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
+            return 1;
+        }
+    } else {
+        std::cerr << "Unknown model format. Please check your model file name." << std::endl;
+        return 1;
     }
 
     VideoHandler video(cfg.video_output_file);

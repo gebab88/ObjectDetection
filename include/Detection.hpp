@@ -7,6 +7,8 @@
 #include <fstream>
 #include <filesystem>
 
+#include "Framework.hpp"
+
 
 class Detection{
     public:
@@ -20,6 +22,7 @@ class Detection{
 
     protected:
         std::string model_file_;
+        MODEL_FORMAT model_format_;
         cv::Mat blob_;
         float score_threshold_;
         cv::Mat resized_;
