@@ -2,8 +2,10 @@
 
 Ort::SessionOptions Detection_ORT::make_session_opts() {
     Ort::SessionOptions opts;
-    // opts.SetIntraOpNumThreads(4);
+    opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
+    opts.SetOptimizedModelFilePath("model_optimized.onnx");
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
     
     #ifdef __APPLE__
         // macOS-spezifischer Code

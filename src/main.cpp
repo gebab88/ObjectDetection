@@ -32,7 +32,7 @@ void signalHandler(int /*sig*/) {
 }
 
 int main() {
-    std::cout << cv::getBuildInformation() << std::endl;
+    // std::cout << cv::getBuildInformation() << std::endl;
 
     // ── Load config ───────────────────────────────────────────────────────────
 #if defined(USE_YAML_CONFIG)

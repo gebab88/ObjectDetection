@@ -2,6 +2,7 @@
 #define OBJECTDETECTION_DETECTIONHANDLER_ORT_H
 
 #include <onnxruntime_cxx_api.h>
+#include <thread>
 
 #ifdef __APPLE__
     #include <coreml_provider_factory.h>
