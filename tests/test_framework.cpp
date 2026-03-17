@@ -22,8 +22,3 @@ TEST(DetectModelFormat, ReturnsYOLO26ForYolo26x) {
 TEST(DetectModelFormat, ReturnsUnknownForOtherFiles) {
     EXPECT_EQ(detectModelFormat("some_model.onnx"), MODEL_FORMAT::Unknown);
 }
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
-}

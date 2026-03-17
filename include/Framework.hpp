@@ -2,6 +2,7 @@
 #define OPENCV_OBJECT_DETECTION_FRAMEWORK_HPP
 
 #include <filesystem>
+#include <string>
 
 enum class FRAMEWORK {  OpenCV, 
                         OpenVINO, 
