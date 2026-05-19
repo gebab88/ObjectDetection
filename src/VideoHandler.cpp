@@ -119,6 +119,11 @@ bool VideoHandler::open_webcam(const int &camera_index) {
 bool VideoHandler::openWriter(const cv::Size &output_size) {
     for (const auto& candidate : writerCandidates(output_path_)) {
         if (candidate.path == output_path_ && std::filesystem::exists(candidate.path)) {
+            if (std::filesystem::is_symlink(candidate.path)) {
+                std::cerr << "Error: output path is a symlink, refusing to overwrite: "
+                          << candidate.path << std::endl;
+                return false;
+            }
             std::filesystem::remove(candidate.path);
             std::cout << "Removed existing file: " << candidate.path << std::endl;
         }

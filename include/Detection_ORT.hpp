@@ -20,7 +20,7 @@ class Detection_ORT : public Detection {
                     const cv::Size2f model_shape,
                     const std::string &model_file,
                     const float nms_threshold);
-    virtual ~Detection_ORT() = default;
+    ~Detection_ORT() override = default;
 
     void detect(cv::Mat &frame) override;
 
