@@ -1,26 +1,38 @@
 #include "Detection_ORT.hpp"
 
+#include <cstdlib>
+#include <filesystem>
+#include <unordered_map>
+
 Ort::SessionOptions Detection_ORT::make_session_opts() {
     Ort::SessionOptions opts;
     opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
-    opts.SetOptimizedModelFilePath("model_optimized.onnx");
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
+
+    #if !(defined(__APPLE__) && defined(ENABLE_ORT_COREML))
+        opts.SetOptimizedModelFilePath("model_optimized.onnx");
+    #endif
     
-    #ifdef __APPLE__
-        // macOS-spezifischer Code
-        // CoreML aktivieren → nutzt automatisch AMD Radeon via Metal
-        //uint32_t coreml_flags = 0x010;  // COREML_FLAG_USE_METAL (ab ORT 1.18) – nutzt GPU, wenn verfügbar
-        uint32_t coreml_flag = COREML_FLAG_CREATE_MLPROGRAM;  // Standardmäßig GPU nutzen, falls verfügbar
-        // Optional: nur GPU erzwingen:
-        // coreml_flags |= COREML_FLAG_USE_CPU_ONLY;  // zum Deaktivieren
-        OrtStatus* status = OrtSessionOptionsAppendExecutionProvider_CoreML(opts, coreml_flag);
-        if (status != nullptr) {
-            std::cerr << "[Warning] CoreML nicht verfügbar: "
-                  << Ort::GetApi().GetErrorMessage(status) << "\n";
-            Ort::GetApi().ReleaseStatus(status);
+    #if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
+        std::unordered_map<std::string, std::string> coreml_options;
+        coreml_options[kCoremlProviderOption_ModelFormat] = "MLProgram";
+        coreml_options[kCoremlProviderOption_MLComputeUnits] = "CPUAndNeuralEngine";
+        coreml_options[kCoremlProviderOption_RequireStaticInputShapes] = "1";
+        coreml_options[kCoremlProviderOption_EnableOnSubgraphs] = "0";
+        const std::string cache_dir = std::filesystem::absolute(".ort_coreml_cache").string();
+        std::filesystem::create_directories(cache_dir);
+        setenv("TMPDIR", cache_dir.c_str(), 1);
+        coreml_options[kCoremlProviderOption_ModelCacheDirectory] = cache_dir;
+
+        try {
+            opts.AppendExecutionProvider("CoreML", coreml_options);
+            std::cout << "[Provider] CoreML EP enabled with CPUAndNeuralEngine." << std::endl;
+        } catch (const Ort::Exception& e) {
+            std::cerr << "[Warning] CoreML Execution Provider could not be enabled: "
+                      << e.what() << ". Falling back to CPU." << std::endl;
         }
-    #elif __aarch64__
+    #elif defined(__linux__) && defined(__aarch64__)
         // Linux-spezifischer Code
         // XNNPACK aktivieren → nutzt automatisch verfügbare CPU-Features
         opts.AppendExecutionProvider("XNNPACK");

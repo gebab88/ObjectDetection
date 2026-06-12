@@ -15,12 +15,22 @@ struct Config {
     float        nms_threshold    = 0.5f;
     
     // Model
+#if defined(HAVE_ONNX_RUNTIME) || defined(HAVE_OPENVINO)
     std::string  model_file       = "yolo26x.onnx";
+#else
+    std::string  model_file       = "yolo12m.onnx";
+#endif
     std::string  class_names_file = "coco.txt";
     cv::Size2f   model_shape      = cv::Size(640, 640);
 
     // Backend
+#if defined(HAVE_ONNX_RUNTIME)
+    FRAMEWORK    framework        = FRAMEWORK::ONNXRuntime;
+#elif defined(HAVE_OPENVINO)
     FRAMEWORK    framework        = FRAMEWORK::OpenVINO;
+#else
+    FRAMEWORK    framework        = FRAMEWORK::OpenCV;
+#endif
     bool         use_cuda         = false;
 
     // Input / Output

@@ -3,13 +3,15 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/tracking.hpp>
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <csignal>
 #include <filesystem>
+#include <list>
+#include <memory>
 
 
-#define USE_YAML_CONFIG
 #include "config_loader.hpp"
 
 #include "VideoHandler.hpp"
@@ -17,12 +19,13 @@
 #include "Source.hpp"
 #include "Timer.hpp"
 #include "Detection_OpenCV.hpp"
-#include "Detection_ORT.hpp"
 
-#ifdef __APPLE__
-    #include "Detection_OpenVINO.hpp"
-#elif __linux__
-    // Linux-spezifische Includes
+#ifdef HAVE_ONNX_RUNTIME
+#include "Detection_ORT.hpp"
+#endif
+
+#ifdef HAVE_OPENVINO
+#include "Detection_OpenVINO.hpp"
 #endif
 
 volatile sig_atomic_t ret = 1;
@@ -47,11 +50,15 @@ int main() {
     const auto model_format = detectModelFormat(cfg.model_file);
 
     if (model_format == MODEL_FORMAT::YOLO26) {
-        std::list<FRAMEWORK> supportedBackends = {
-            FRAMEWORK::ONNXRuntime,
-            FRAMEWORK::OpenVINO
-        };
+        std::list<FRAMEWORK> supportedBackends;
+        #ifdef HAVE_ONNX_RUNTIME
+        supportedBackends.push_back(FRAMEWORK::ONNXRuntime);
+        #endif
+        #ifdef HAVE_OPENVINO
+        supportedBackends.push_back(FRAMEWORK::OpenVINO);
+        #endif
         if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
+            std::cerr << "Selected backend does not support YOLO26 in this build." << std::endl;
             return 1;
         }
     } else if (model_format == MODEL_FORMAT::YOLO12) {
@@ -59,6 +66,7 @@ int main() {
             FRAMEWORK::OpenCV
         };
         if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
+            std::cerr << "Selected backend does not support YOLO12 in this build." << std::endl;
             return 1;
         }
     } else {
@@ -71,11 +79,14 @@ int main() {
     std::unique_ptr<Detection> detection;
     if (cfg.framework == FRAMEWORK::OpenCV) {
         detection = std::make_unique<Detection_OpenCV>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold, cfg.use_cuda);
-    } else if (cfg.framework == FRAMEWORK::ONNXRuntime) {
+    }
+    #ifdef HAVE_ONNX_RUNTIME
+    else if (cfg.framework == FRAMEWORK::ONNXRuntime) {
         detection = std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file);
     }
+    #endif
 
-    #ifdef __APPLE__
+    #ifdef HAVE_OPENVINO
     else if (cfg.framework == FRAMEWORK::OpenVINO) {
         detection = std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape, cfg.model_file);
     }
