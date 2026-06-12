@@ -30,7 +30,8 @@ class Detection_ORT : public Detection {
     Ort::SessionOptions               session_opts_;
     Ort::AllocatorWithDefaultOptions  allocator_;
     Ort::Session                      session_;
-    std::string                       input_name_, output_name_ ;
+    std::string                       input_name_;
+    std::vector<std::string>          output_names_;
     size_t                            plane_;
     std::vector<float>                input_;
     std::vector<cv::Mat>              chans_;
