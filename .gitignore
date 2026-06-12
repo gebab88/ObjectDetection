@@ -21,3 +21,4 @@ src/.DS_Store
 *.ninja*
 *.yaml
 *.json
+.ort_coreml_cache/

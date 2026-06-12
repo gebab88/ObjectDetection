@@ -9,7 +9,7 @@ model:
   model_height: 640
 
 backend:
-  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime
+  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime; ONNXRuntime + macOS CoreML can use Apple Neural Engine
   use_cuda: false
 
 input:
