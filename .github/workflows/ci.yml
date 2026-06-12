@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-minimal
+            os: ubuntu-latest
+            deps: linux
+            cmake_flags: >-
+              -DENABLE_ONNX_RUNTIME=OFF
+              -DENABLE_OPENVINO=OFF
+              -DENABLE_YAML_CONFIG=OFF
+              -DFETCH_GTEST=ON
+
+          - name: linux-yaml
+            os: ubuntu-latest
+            deps: linux-yaml
+            cmake_flags: >-
+              -DENABLE_ONNX_RUNTIME=OFF
+              -DENABLE_OPENVINO=OFF
+              -DENABLE_YAML_CONFIG=ON
+              -DFETCH_GTEST=ON
+
+          - name: linux-default-discovery
+            os: ubuntu-latest
+            deps: linux-yaml
+            cmake_flags: >-
+              -DFETCH_GTEST=ON
+
+          - name: macos-minimal
+            os: macos-latest
+            deps: macos
+            cmake_flags: >-
+              -DENABLE_ONNX_RUNTIME=OFF
+              -DENABLE_OPENVINO=OFF
+              -DENABLE_YAML_CONFIG=OFF
+              -DFETCH_GTEST=ON
+
+          - name: macos-yaml
+            os: macos-latest
+            deps: macos-yaml
+            cmake_flags: >-
+              -DENABLE_ONNX_RUNTIME=OFF
+              -DENABLE_OPENVINO=OFF
+              -DENABLE_YAML_CONFIG=ON
+              -DFETCH_GTEST=ON
+
+          - name: macos-default-discovery
+            os: macos-latest
+            deps: macos-yaml
+            cmake_flags: >-
+              -DFETCH_GTEST=ON
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: startsWith(matrix.deps, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libopencv-dev
+          if [[ "${{ matrix.deps }}" == "linux-yaml" ]]; then
+            sudo apt-get install -y libyaml-cpp-dev
+          fi
+
+      - name: Install macOS dependencies
+        if: startsWith(matrix.deps, 'macos')
+        run: |
+          brew install cmake ninja opencv
+          if [[ "${{ matrix.deps }}" == "macos-yaml" ]]; then
+            brew install yaml-cpp
+          fi
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          ${{ matrix.cmake_flags }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

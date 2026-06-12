@@ -8,9 +8,9 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 - **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime and OpenVINO via a single enum
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
-- **Hardware Acceleration**: CoreML (Apple Silicon / AMD Radeon via Metal) and XNNPACK (ARM Linux)
+- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine) and XNNPACK (ARM Linux)
 - **YOLO Support**: YOLO v12 (standard output format) and YOLO v26 (end-to-end, no NMS required)
-- **Video Output**: Processed frames with bounding boxes are written to `output.avi`
+- **Video Output**: Processed frames with bounding boxes are written to the configured output file
 - **Performance Timing**: Built-in high-resolution timer for total execution time
 
 ---
@@ -19,8 +19,8 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 | Platform        | OpenCV DNN | ONNX Runtime | OpenVINO |
 |-----------------|:----------:|:------------:|:--------:|
-| macOS (x86/ARM) | ✅          | ✅ /w CoreML   | ✅        |
-| Linux (aarch64) | ✅          | ✅ /W XNNPACK  | ❌ (not supported) |
+| macOS (x86/ARM) | ✅          | ✅ / CoreML on Apple Silicon | ✅        |
+| Linux (aarch64) | ✅          | ✅ / XNNPACK   | ❌ (not supported) |
 
 ---
 
@@ -29,8 +29,8 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **CMake** ≥ 3.10
 - **C++17** compiler (clang++ or g++)
 - **OpenCV** ≥ 4.x (with `opencv_dnn`, `opencv_tracking`)
-- **ONNX Runtime** (local installation, see below)
-- **OpenVINO** 2025.x *(macOS only)*
+- **ONNX Runtime** *(optional, required for the ONNX Runtime backend)*
+- **OpenVINO** 2025.x *(optional, macOS only)*
 
 ### Install OpenCV (macOS)
 ```bash
@@ -84,28 +84,78 @@ cmake --build . -- -j$(nproc)
 
 The resulting binary is `ObjectDetection` inside the `build/` directory.
 
+Tests are built when GoogleTest is installed. To let CMake download GoogleTest
+into the build directory, configure with `-DFETCH_GTEST=ON`.
+
+### Test Matrix
+
+CI runs the following build-and-test matrix via GitHub Actions:
+
+| Job | OS | Coverage |
+|-----|----|----------|
+| `linux-minimal` | Ubuntu | OpenCV-only build without optional backends or YAML |
+| `linux-yaml` | Ubuntu | YAML config enabled, optional inference backends disabled |
+| `linux-default-discovery` | Ubuntu | Default optional backend discovery with YAML available |
+| `macos-minimal` | macOS | OpenCV-only build without optional backends or YAML |
+| `macos-yaml` | macOS | YAML config enabled, optional inference backends disabled |
+| `macos-default-discovery` | macOS | Default optional backend discovery with YAML available |
+
+### Apple Neural Engine / NPU
+
+On Apple Silicon, use the ONNX Runtime backend with CoreML enabled:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_ONNX_RUNTIME=ON \
+  -DENABLE_ORT_COREML=ON \
+  -DENABLE_OPENVINO=OFF
+cmake --build build
+```
+
+Then select ONNX Runtime in `config.yaml`:
+
+```yaml
+backend:
+  framework: "ONNXRuntime"
+```
+
+The CoreML Execution Provider is configured with `CPUAndNeuralEngine` and
+`MLProgram`. CoreML decides operator placement, so this enables the Apple Neural
+Engine path but does not guarantee that every model operator runs on the NPU.
+
 ---
 
 ## Configuration
 
-All runtime parameters are currently set as constants at the top of `src/main.cpp`:
+Runtime parameters are loaded from `config.yaml` when yaml-cpp is available:
 
-```cpp
-const float SCORE_THRESHOLD  = 0.4f;      // Minimum confidence score
-const float NMS_THRESHOLD    = 0.5f;      // Non-Maximum Suppression threshold (OpenCV backend only)
-const cv::Size2f MODELSHAPE  = {640, 640};// Model input resolution
+```yaml
+detection:
+  score_threshold: 0.4
+  nms_threshold: 0.5
 
-const int  FILE_OR_WEBCAM    = 1;         // 1 = video file, 2 = webcam
-const bool SHOW_FRAMES       = false;     // Display frames in a window during processing
+model:
+  model_file: "yolo26x.onnx"
+  class_names_file: "coco.txt"
+  model_width: 640
+  model_height: 640
 
-const std::string VIDEO_INPUT_FILE  = "./test.mov";
-const std::string CLASS_NAMES_FILE  = "./coco.txt";
-const std::string MODEL_FILE        = "./yolo26x.onnx";
+backend:
+  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime
+  use_cuda: false
 
-const bool USE_CUDA = false;              // CUDA backend (OpenCV DNN only)
+input:
+  source: "VIDEO"            # WEBCAM | VIDEO
+  webcam_index: 0
+  video_input_file: "test.mov"
+  video_output_file: "output.mp4"
 
-FRAMEWORK backend = FRAMEWORK::ONNXRuntime; // OpenCV | ONNXRuntime | OpenVINO
+display:
+  show_frames: false
 ```
+
+If yaml-cpp or `config.yaml` is not available, the program uses built-in
+defaults that match the backends compiled into the binary.
 
 ---
 
@@ -118,7 +168,9 @@ cd build
 ./ObjectDetection
 ```
 
-The processed video is saved to `output.avi` in the working directory.
+The processed video is saved to `input.video_output_file` from `config.yaml`.
+If the requested container/codec cannot be opened, the writer tries compatible
+fallback codecs and may use a new `.avi` fallback filename.
 
 ### Supported Models
 
@@ -128,7 +180,7 @@ The processed video is saved to `output.avi` in the working directory.
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
 
-> **Note:** The OpenCV DNN backend only supports `yolo12m.onnx`. Using `yolo26*.onnx` with OpenCV DNN will fall into the unimplemented `else` branch.
+> **Note:** The OpenCV DNN backend only supports `yolo12m.onnx`. YOLO26 models require ONNX Runtime or OpenVINO in the current build.
 
 ---
 
