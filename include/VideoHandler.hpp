@@ -21,16 +21,8 @@ class VideoHandler {
         void set_video_writer();
 
     private:
-        const std::string output_path_;
+        std::string output_path_;
         const int camera_index = 0;
-        #ifdef __APPLE__
-            const int codec_ = cv::VideoWriter::fourcc('a', 'v', 'c', '1');
-        #elif __linux__
-        // Linux-spezifischer Code
-            // const int codec_ = cv::VideoWriter::fourcc('X', 'V', 'I', 'D');
-            // const int codec_ = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
-            const int codec_ = cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
-        #endif
 
         cv::VideoCapture cap_;
         cv::VideoWriter output_;
