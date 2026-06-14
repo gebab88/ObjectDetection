@@ -23,3 +23,6 @@ src/.DS_Store
 *.yaml
 *.json
 .ort_coreml_cache/
+# Locally built test executables
+/tests_runner
+/inference_tests_runner
