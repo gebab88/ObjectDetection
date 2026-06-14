@@ -9,7 +9,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime and OpenVINO via a single enum
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
 - **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine) and XNNPACK (ARM Linux)
-- **YOLO Support**: YOLO v12 (standard output format) and YOLO v26 (end-to-end, no NMS required)
+- **YOLO Support**: YOLOE open-vocabulary exports, YOLO v12 raw output and YOLO v26 end-to-end output
 - **Video Output**: Processed frames with bounding boxes are written to the configured output file
 - **Performance Timing**: Built-in high-resolution timer for total execution time
 
@@ -17,10 +17,12 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 ## Supported Platforms
 
-| Platform        | OpenCV DNN | ONNX Runtime | OpenVINO |
-|-----------------|:----------:|:------------:|:--------:|
-| macOS (x86/ARM) | ✅          | ✅ / CoreML on Apple Silicon | ✅        |
-| Linux (aarch64) | ✅          | ✅ / XNNPACK   | ❌ (not supported) |
+| Platform              | OpenCV DNN | ONNX Runtime | OpenVINO |
+|-----------------------|:----------:|:------------:|:--------:|
+| macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled |
+| macOS (Intel)         | ✅          | ✅            | ✅ when installed |
+| Linux (Intel x86_64)  | ✅          | ✅            | ✅ when installed |
+| Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled |
 
 ---
 
@@ -30,7 +32,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **C++17** compiler (clang++ or g++)
 - **OpenCV** ≥ 4.x (with `opencv_dnn`, `opencv_tracking`)
 - **ONNX Runtime** *(optional, required for the ONNX Runtime backend)*
-- **OpenVINO** 2025.x *(optional, macOS only)*
+- **OpenVINO** 2025.x *(optional, enabled by CMake only when an Intel CPU is detected)*
 
 ### Install OpenCV (macOS)
 ```bash
@@ -62,11 +64,16 @@ ObjectDetection/
 
 ### OpenVINO (Intel only)
 
-Install OpenVINO 2025.x to `/opt/intel/openvino_2025.x.x/`. The CMakeLists.txt expects this path by default.
+OpenVINO is only enabled automatically when CMake detects an Intel CPU
+(`GenuineIntel`). On Apple Silicon, ARM Linux, and non-Intel CPUs, CMake
+disables `ENABLE_OPENVINO` and does not search for the package.
+
+Install OpenVINO 2025.x and make its CMake package discoverable through
+`CMAKE_PREFIX_PATH` or `OpenVINO_DIR`.
 
 ```bash
-# Adjust the path in CMakeLists.txt if your installation differs:
-set(OpenVINO_DIR "/opt/intel/openvino_2025.x.x/runtime/cmake")
+cmake .. -DCMAKE_BUILD_TYPE=Release \
+  -DOpenVINO_DIR=/opt/intel/openvino_2025.x.x/runtime/cmake
 ```
 
 ---
@@ -86,6 +93,19 @@ The resulting binary is `ObjectDetection` inside the `build/` directory.
 
 Tests are built when GoogleTest is installed. To let CMake download GoogleTest
 into the build directory, configure with `-DFETCH_GTEST=ON`.
+
+When ONNX Runtime and local model assets are available, CMake also enables a
+real inference test. It runs `Detection_ORT` on `test.mov` and verifies that the
+model draws bounding-box output on at least one frame. The test auto-selects
+`yoloe-11l-seg.onnx` when present, otherwise `yolo26m.onnx`/`yolo26x.onnx`.
+Disable it with `-DENABLE_INFERENCE_TESTS=OFF` or override the inputs with:
+
+```bash
+cmake .. \
+  -DINFERENCE_TEST_MODEL=/path/to/model.onnx \
+  -DINFERENCE_TEST_CLASSES=/path/to/classes.txt \
+  -DINFERENCE_TEST_VIDEO=/path/to/video.mov
+```
 
 ### Test Matrix
 
@@ -119,9 +139,13 @@ backend:
   framework: "ONNXRuntime"
 ```
 
-The CoreML Execution Provider is configured with `CPUAndNeuralEngine` and
-`MLProgram`. CoreML decides operator placement, so this enables the Apple Neural
-Engine path but does not guarantee that every model operator runs on the NPU.
+The CoreML Execution Provider is configured with `MLProgram` and a local
+`.ort_coreml_cache` directory for compiled CoreML artifacts. By default the
+provider lets CoreML use all available compute units. To force one supported
+CoreML mode for diagnostics, run with `ORT_COREML_COMPUTE_UNITS=CPUAndGPU` or
+`ORT_COREML_COMPUTE_UNITS=CPUAndNeuralEngine`. CoreML decides operator
+placement, so this enables GPU and Apple Neural Engine paths but does not
+guarantee that every model operator runs on the NPU.
 
 ---
 
@@ -135,8 +159,8 @@ detection:
   nms_threshold: 0.5
 
 model:
-  model_file: "yolo26x.onnx"
-  class_names_file: "coco.txt"
+  model_file: "yoloe-11l-seg.onnx"
+  class_names_file: "yoloe_classes.txt"
   model_width: 640
   model_height: 640
 
@@ -159,6 +183,23 @@ defaults that match the backends compiled into the binary.
 
 ---
 
+## YOLOE Export
+
+YOLOE uses a class vocabulary that is embedded into the exported model. Edit
+`yoloe_classes.txt`, then export the ONNX file and matching runtime labels:
+
+```bash
+python3 -m pip install ultralytics
+python3 export.py
+```
+
+The default export writes `yoloe-11l-seg.onnx` and keeps `yoloe_classes.txt`
+as the runtime label file. Re-run the export whenever the class list changes.
+Use `python3 export.py --nms` only if you want NMS embedded into the ONNX graph;
+without it, this C++ application performs NMS after inference.
+
+---
+
 ## Usage
 
 Place your model file (`.onnx`) and the class names file in the project directory, then run:
@@ -176,11 +217,12 @@ fallback codecs and may use a new `.avi` fallback filename.
 
 | Model file        | Backend compatibility              | Notes                          |
 |-------------------|-------------------------------     |--------------------------------|
+| `yoloe*.onnx`     | OpenCV DNN, ONNX Runtime, OpenVINO | Open-vocabulary classes baked in during export; raw YOLO output or end-to-end output |
 | `yolo12m.onnx`    | OpenCV DNN, ONNX Runtime, OpenVINO | Standard YOLO output (NMS required) |
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
 
-> **Note:** The OpenCV DNN backend only supports `yolo12m.onnx`. YOLO26 models require ONNX Runtime or OpenVINO in the current build.
+> **Note:** YOLOE class labels must match the classes used by `export.py`.
 
 ---
 
@@ -190,6 +232,7 @@ fallback codecs and may use a new `.avi` fallback filename.
 ObjectDetection/
 ├── CMakeLists.txt
 ├── coco.txt                  # COCO class names (80 classes)
+├── yoloe_classes.txt         # YOLOE export/runtime classes
 ├── coco.yaml                 # COCO dataset config
 ├── include/
 │   ├── Detection.hpp         # Abstract base class
@@ -230,9 +273,8 @@ ObjectDetection/
 
 ## Known Limitations / TODO
 
-- **Linux + OpenVINO**: Not yet supported. OpenVINO is only compiled on macOS.
+- **OpenVINO**: Automatically disabled unless CMake detects an Intel CPU.
 - **Tracker**: The `Tracker` module is stubbed out and not integrated into the main loop.
-- **Configuration**: Parameters are currently hardcoded in `main.cpp`; CLI argument support is planned.
 - **OpenCV DNN + yolo26**: The detection branch for this combination is not yet implemented (`// in progress`).
 
 ---
