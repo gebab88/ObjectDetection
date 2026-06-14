@@ -18,13 +18,14 @@ class Detection_ORT : public Detection {
     public:
     Detection_ORT(  const float score_threshold,
                     const cv::Size2f model_shape,
-                    const std::string &model_file);
+                    const std::string &model_file,
+                    const float nms_threshold);
     virtual ~Detection_ORT() = default;
 
     void detect(cv::Mat &frame) override;
 
     private:
-    static Ort::SessionOptions make_session_opts();
+    static Ort::SessionOptions make_session_opts(const std::string& model_file);
     
     Ort::Env                          env_;
     Ort::SessionOptions               session_opts_;
@@ -35,6 +36,7 @@ class Detection_ORT : public Detection {
     size_t                            plane_;
     std::vector<float>                input_;
     std::vector<cv::Mat>              chans_;
+    float                             nms_threshold_;
 };
 
 #endif //OBJECTDETECTION_DETECTIONHANDLER_ORT_H

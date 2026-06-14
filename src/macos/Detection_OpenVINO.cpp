@@ -1,10 +1,13 @@
 #include "Detection_OpenVINO.hpp"
+#include "YoloPostprocess.hpp"
 
 
 Detection_OpenVINO::Detection_OpenVINO( float score_threshold,
                                         cv::Size2f model_shape,
-                                        const std::string &model_file ) :
-                                        Detection(score_threshold, model_shape, model_file){
+                                        const std::string &model_file,
+                                        const float nms_threshold ) :
+                                        Detection(score_threshold, model_shape, model_file),
+                                        nms_threshold_(nms_threshold){
     auto model = core_.read_model(model_file_);
     auto compiled = core_.compile_model(model, "AUTO", ov::hint::enable_hyper_threading(true));
     infer_request_       = compiled.create_infer_request();
@@ -12,16 +15,15 @@ Detection_OpenVINO::Detection_OpenVINO( float score_threshold,
     input_ = ov::Tensor(  input_port.get_element_type(),
                                 input_port.get_shape()
                                 );
-    plane_ = 640 * 640;
+    plane_ = static_cast<size_t>(model_shape_.width) * static_cast<size_t>(model_shape_.height);
     chans_ = std::vector<cv::Mat>(3);
 };
 
 void Detection_OpenVINO::detect( cv::Mat &frame) {
-    // Skalierungsfaktoren berechnen, um Boxen auf Originalbildgröße zu ziehen
-    const float x_scale = (float)frame.cols / model_shape_.width;
-    const float y_scale = (float)frame.rows / model_shape_.height;
+    const int W = static_cast<int>(model_shape_.width);
+    const int H = static_cast<int>(model_shape_.height);
 
-    cv::resize(frame, resized_, {640, 640});
+    cv::resize(frame, resized_, {W, H});
 
     // BGR → RGB, uint8 → float32, normalisieren [0,1]
     resized_.convertTo(blob_, CV_32F, 1.0 / 255.0);
@@ -42,40 +44,23 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
     output_ = infer_request_.get_output_tensor(0);
     if (output_.get_size() == 0) { std::cerr << "Leerer Output!\n"; }
 
-    // Dimensionen abrufen: z.B. 300 Erkennungen
     ov::Shape shape = output_.get_shape();
-    const int numDets = shape[1];
-    const int numFields = shape[2];
-
-    float x1,x2,y1,y2,score;
-    int class_id;
-    cv::Rect box;
+    if (shape.size() != 3) {
+        yolo_postprocess::warnUnsupportedShape("OpenVINO", std::vector<int64_t>(shape.begin(), shape.end()));
+        return;
+    }
 
     data_ = output_.data<float>();
-    const float* end = data_ + numDets * numFields;
-
-    for ( ; data_ != end; data_ += numFields) {
-        score = data_[4];
-
-        // Frühzeitiger Abbruch – häufigster Pfad zuerst
-        if (score < score_threshold_) continue;
-
-        // Koordinaten extrahieren und auf Originalgröße skalieren
-        x1 = data_[0] * x_scale;
-        y1 = data_[1] * y_scale;
-        x2 = data_[2] * x_scale;
-        y2 = data_[3] * y_scale;
-        class_id = (int)data_[5];
-        if (class_id < 0 || class_id >= (int)class_list.size()) continue;
-
-        // Ungültige Boxen (Breite/Höhe <= 0) direkt verwerfen
-        if (x2 <= x1 || y2 <= y1) continue;
-
-        box = cv::Rect(int(x1), int(y1), int(x2-x1), int(y2-y1));
-
-        rectangle(frame, box, cv::Scalar(0,255,255), 1);
-        std::string label = class_list[ class_id ] + "  " + std::to_string(int(100 * score)) + "%" ;
-        std::cout << label << '\n';
-        putText(frame, label, cv::Point( box.x, box.y ), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
+    if ((model_format_ == MODEL_FORMAT::YOLO12 || model_format_ == MODEL_FORMAT::YOLOE) &&
+        yolo_postprocess::decodeRaw(data_, shape[1], shape[2], frame, model_shape_,
+                                    class_list, score_threshold_, nms_threshold_)) {
+        return;
     }
+
+    if (yolo_postprocess::decodeEndToEnd(data_, shape[1], shape[2], frame, model_shape_,
+                                         class_list, score_threshold_)) {
+        return;
+    }
+
+    yolo_postprocess::warnUnsupportedShape("OpenVINO", std::vector<int64_t>(shape.begin(), shape.end()));
 }

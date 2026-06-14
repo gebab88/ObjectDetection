@@ -1,55 +1,44 @@
 #include "Detection_ORT.hpp"
+#include "YoloPostprocess.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
+#include <string>
 #include <unordered_map>
 
-namespace {
-float sigmoid(float value) {
-    return 1.0f / (1.0f + std::exp(-value));
-}
-
-float confidence(float value) {
-    if (value >= 0.0f && value <= 1.0f) {
-        return value;
-    }
-    return sigmoid(value);
-}
-
-cv::Rect clippedRect(float left, float top, float right, float bottom, const cv::Size& frame_size) {
-    const int x1 = std::clamp(static_cast<int>(std::round(left)), 0, frame_size.width - 1);
-    const int y1 = std::clamp(static_cast<int>(std::round(top)), 0, frame_size.height - 1);
-    const int x2 = std::clamp(static_cast<int>(std::round(right)), 0, frame_size.width - 1);
-    const int y2 = std::clamp(static_cast<int>(std::round(bottom)), 0, frame_size.height - 1);
-    if (x2 <= x1 || y2 <= y1) {
-        return {};
-    }
-    return cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2));
-}
-}
-
-Ort::SessionOptions Detection_ORT::make_session_opts() {
+Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_file) {
     Ort::SessionOptions opts;
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
 
-    #if !(defined(__APPLE__) && defined(ENABLE_ORT_COREML))
+    (void)model_file;
+#if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
+    const bool use_coreml = true;
+#else
+    const bool use_coreml = false;
+#endif
+
+    if (!use_coreml) {
         opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
         opts.SetOptimizedModelFilePath("model_optimized.onnx");
-    #endif
+    }
     
     #if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
+    if (use_coreml) {
         opts.SetIntraOpNumThreads(1);
 
         std::unordered_map<std::string, std::string> coreml_options;
         coreml_options[kCoremlProviderOption_ModelFormat] = "MLProgram";
-        coreml_options[kCoremlProviderOption_MLComputeUnits] = "ALL";
         coreml_options[kCoremlProviderOption_RequireStaticInputShapes] = "1";
         coreml_options[kCoremlProviderOption_EnableOnSubgraphs] = "0";
         coreml_options[kCoremlProviderOption_AllowLowPrecisionAccumulationOnGPU] = "1";
+        if (const char* compute_units = std::getenv("ORT_COREML_COMPUTE_UNITS")) {
+            if (*compute_units != '\0') {
+                coreml_options[kCoremlProviderOption_MLComputeUnits] = compute_units;
+            }
+        }
         const std::string cache_dir = std::filesystem::absolute(".ort_coreml_cache").string();
         std::filesystem::create_directories(cache_dir);
         setenv("TMPDIR", cache_dir.c_str(), 1);
@@ -57,11 +46,17 @@ Ort::SessionOptions Detection_ORT::make_session_opts() {
 
         try {
             opts.AppendExecutionProvider("CoreML", coreml_options);
-            std::cout << "[Provider] CoreML EP enabled with MLComputeUnits=ALL (GPU + Neural Engine)." << std::endl;
+            std::cout << "[Provider] CoreML EP enabled; compute units: "
+                      << (coreml_options.count(kCoremlProviderOption_MLComputeUnits)
+                              ? coreml_options[kCoremlProviderOption_MLComputeUnits]
+                              : "CoreML default/all available units")
+                      << "." << std::endl;
+            std::cout << "[Provider] CoreML model cache: " << cache_dir << std::endl;
         } catch (const Ort::Exception& e) {
             std::cerr << "[Warning] CoreML Execution Provider could not be enabled: "
                       << e.what() << ". Falling back to CPU." << std::endl;
         }
+    }
     #elif defined(__linux__) && defined(__aarch64__)
         // Linux-spezifischer Code
         // XNNPACK aktivieren → nutzt automatisch verfügbare CPU-Features
@@ -73,14 +68,16 @@ Ort::SessionOptions Detection_ORT::make_session_opts() {
 
 Detection_ORT::Detection_ORT(float score_threshold,
                             cv::Size2f model_shape,
-                            const std::string &model_file) :
+                            const std::string &model_file,
+                            const float nms_threshold) :
 
                             Detection(score_threshold, model_shape, model_file),
                             env_(Ort::Env(ORT_LOGGING_LEVEL_ERROR, "yolo")),
-                            session_opts_(make_session_opts()),
+                            session_opts_(make_session_opts(model_file)),
                             allocator_(),
                             session_(env_, model_file_.c_str(), session_opts_),
-                            input_name_(session_.GetInputNameAllocated(0, allocator_).get()) {
+                            input_name_(session_.GetInputNameAllocated(0, allocator_).get()),
+                            nms_threshold_(nms_threshold) {
 
     plane_ = (size_t)model_shape_.width * model_shape_.height;
     input_ = std::vector<float>(3 * plane_);
@@ -100,10 +97,6 @@ Detection_ORT::Detection_ORT(float score_threshold,
 }
 
 void Detection_ORT::detect( cv::Mat &frame) {
-    // Skalierungsfaktoren berechnen, um Boxen auf Originalbildgröße zu ziehen
-    const float x_scale = (float)frame.cols / model_shape_.width;
-    const float y_scale = (float)frame.rows / model_shape_.height;
-
     const int W = static_cast<int>(model_shape_.width);
     const int H = static_cast<int>(model_shape_.height);
 
@@ -152,7 +145,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
                 float score = -std::numeric_limits<float>::infinity();
                 int class_id = -1;
                 for (int c = 0; c < numClasses; ++c) {
-                    const float class_score = confidence(logits[i * shape[2] + c]);
+                    const float class_score = yolo_postprocess::confidence(logits[i * shape[2] + c]);
                     if (class_score > score) {
                         score = class_score;
                         class_id = c;
@@ -165,9 +158,9 @@ void Detection_ORT::detect( cv::Mat &frame) {
                 const float cy = boxes[i * 4 + 1] * frame.rows;
                 const float w = boxes[i * 4 + 2] * frame.cols;
                 const float h = boxes[i * 4 + 3] * frame.rows;
-                cv::Rect box = clippedRect(cx - 0.5f * w, cy - 0.5f * h,
-                                           cx + 0.5f * w, cy + 0.5f * h,
-                                           frame_size);
+                cv::Rect box = yolo_postprocess::clippedRect(cx - 0.5f * w, cy - 0.5f * h,
+                                                             cx + 0.5f * w, cy + 0.5f * h,
+                                                             frame_size);
                 if (box.empty()) continue;
 
                 rectangle(frame, box, cv::Scalar(0,255,255), 1);
@@ -190,64 +183,16 @@ void Detection_ORT::detect( cv::Mat &frame) {
     }
 
     data_ = outputs[0].GetTensorMutableData<float>();
-
-    float x1,x2,y1,y2,score;
-    int class_id;
-    cv::Rect box;
-
-    const int numDets = shape[2] == 6 ? static_cast<int>(shape[1]) :
-                        shape[1] == 6 ? static_cast<int>(shape[2]) : 0;
-
-    if (numDets == 0) {
-        static bool warned = false;
-        if (!warned) {
-            std::cerr << "Unsupported single-output detection shape: [";
-            for (size_t i = 0; i < shape.size(); ++i) {
-                std::cerr << shape[i] << (i + 1 < shape.size() ? ", " : "");
-            }
-            std::cerr << "]" << std::endl;
-            warned = true;
-        }
+    if ((model_format_ == MODEL_FORMAT::YOLO12 || model_format_ == MODEL_FORMAT::YOLOE) &&
+        yolo_postprocess::decodeRaw(data_, shape[1], shape[2], frame, model_shape_,
+                                    class_list, score_threshold_, nms_threshold_)) {
         return;
     }
 
-    for (int i = 0; i < numDets; ++i) {
-        if (shape[2] == 6) {
-            data_ = outputs[0].GetTensorMutableData<float>() + i * 6;
-            x1 = data_[0];
-            y1 = data_[1];
-            x2 = data_[2];
-            y2 = data_[3];
-            score = data_[4];
-            class_id = (int)data_[5];
-        } else {
-            const float* data = outputs[0].GetTensorData<float>();
-            x1 = data[0 * numDets + i];
-            y1 = data[1 * numDets + i];
-            x2 = data[2 * numDets + i];
-            y2 = data[3 * numDets + i];
-            score = data[4 * numDets + i];
-            class_id = (int)data[5 * numDets + i];
-        }
-
-        // Frühzeitiger Abbruch – häufigster Pfad zuerst
-        if (score < score_threshold_) continue;
-
-        // Koordinaten extrahieren und auf Originalgröße skalieren
-        x1 *= x_scale;
-        y1 *= y_scale;
-        x2 *= x_scale;
-        y2 *= y_scale;
-        if (class_id < 0 || class_id >= (int)class_list.size()) continue;
-
-        // Ungültige Boxen (Breite/Höhe <= 0) direkt verwerfen
-        if (x2 <= x1 || y2 <= y1) continue;
-
-        box = cv::Rect(int(x1), int(y1), int(x2-x1), int(y2-y1));
-
-        rectangle(frame, box, cv::Scalar(0,255,255), 1);
-        std::string label = class_list[ class_id ] + "  " + std::to_string(int(100 * score)) + "%" ;
-        std::cout << label << '\n';
-        putText(frame, label, cv::Point( box.x, box.y ), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
+    if (yolo_postprocess::decodeEndToEnd(data_, shape[1], shape[2], frame, model_shape_,
+                                         class_list, score_threshold_)) {
+        return;
     }
+
+    yolo_postprocess::warnUnsupportedShape("ONNX Runtime", shape);
 }

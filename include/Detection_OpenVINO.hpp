@@ -9,7 +9,8 @@ class Detection_OpenVINO : public Detection {
     public:
     Detection_OpenVINO( float score_threshold,
                         const cv::Size2f model_shape,
-                        const std::string &model_file);
+                        const std::string &model_file,
+                        const float nms_threshold);
     virtual ~Detection_OpenVINO() = default;
 
     void detect(cv::Mat &frame) override;
@@ -20,6 +21,7 @@ class Detection_OpenVINO : public Detection {
     ov::InferRequest infer_request_;
     size_t plane_;
     std::vector<cv::Mat> chans_;
+    float nms_threshold_;
 };
 
 

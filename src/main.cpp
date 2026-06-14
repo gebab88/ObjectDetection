@@ -48,29 +48,30 @@ int main() {
     timer.start();
 
     const auto model_format = detectModelFormat(cfg.model_file);
+    std::list<FRAMEWORK> supportedBackends;
 
-    if (model_format == MODEL_FORMAT::YOLO26) {
-        std::list<FRAMEWORK> supportedBackends;
+    if (model_format == MODEL_FORMAT::YOLO12 || model_format == MODEL_FORMAT::YOLOE) {
+        supportedBackends.push_back(FRAMEWORK::OpenCV);
         #ifdef HAVE_ONNX_RUNTIME
         supportedBackends.push_back(FRAMEWORK::ONNXRuntime);
         #endif
         #ifdef HAVE_OPENVINO
         supportedBackends.push_back(FRAMEWORK::OpenVINO);
         #endif
-        if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
-            std::cerr << "Selected backend does not support YOLO26 in this build." << std::endl;
-            return 1;
-        }
-    } else if (model_format == MODEL_FORMAT::YOLO12) {
-        std::list<FRAMEWORK> supportedBackends = {
-            FRAMEWORK::OpenCV
-        };
-        if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
-            std::cerr << "Selected backend does not support YOLO12 in this build." << std::endl;
-            return 1;
-        }
+    } else if (model_format == MODEL_FORMAT::YOLO26) {
+        #ifdef HAVE_ONNX_RUNTIME
+        supportedBackends.push_back(FRAMEWORK::ONNXRuntime);
+        #endif
+        #ifdef HAVE_OPENVINO
+        supportedBackends.push_back(FRAMEWORK::OpenVINO);
+        #endif
     } else {
         std::cerr << "Unknown model format. Please check your model file name." << std::endl;
+        return 1;
+    }
+
+    if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
+        std::cerr << "Selected backend does not support " << modelFormatName(model_format) << " in this build." << std::endl;
         return 1;
     }
 
@@ -82,13 +83,13 @@ int main() {
     }
     #ifdef HAVE_ONNX_RUNTIME
     else if (cfg.framework == FRAMEWORK::ONNXRuntime) {
-        detection = std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file);
+        detection = std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
     }
     #endif
 
     #ifdef HAVE_OPENVINO
     else if (cfg.framework == FRAMEWORK::OpenVINO) {
-        detection = std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape, cfg.model_file);
+        detection = std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
     }
     #endif
 
