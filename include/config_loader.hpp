@@ -15,12 +15,8 @@ struct Config {
     float        nms_threshold    = 0.5f;
     
     // Model
-#if defined(HAVE_ONNX_RUNTIME) || defined(HAVE_OPENVINO)
-    std::string  model_file       = "yolo26x.onnx";
-#else
-    std::string  model_file       = "yolo12m.onnx";
-#endif
-    std::string  class_names_file = "coco.txt";
+    std::string  model_file       = "yoloe-26m-seg-pf.onnx";
+    std::string  class_names_file = "yoloe_pf_classes.txt";
     cv::Size2f   model_shape      = cv::Size(640, 640);
 
     // Backend
