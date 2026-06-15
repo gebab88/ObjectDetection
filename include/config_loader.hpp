@@ -66,33 +66,46 @@ inline SOURCE sourceFromString(const std::string& s) {
 #include <yaml-cpp/yaml.h>
 
 inline Config loadConfigYAML(const std::string& path) {
+    Config cfg;  // start from defaults; every field below falls back to these
+
     YAML::Node y;
     try {
         y = YAML::LoadFile(path);
     } catch (const YAML::Exception& e) {
-        std::cerr << "Could not open YAML config: " << e.what() << std::endl;
-        return {};
+        std::cerr << "Could not open YAML config: " << e.what()
+                  << " – using default configuration." << std::endl;
+        return cfg;
     }
 
-    Config cfg;
-    cfg.score_threshold   = y["detection"]["score_threshold"].as<float>();
-    cfg.nms_threshold     = y["detection"]["nms_threshold"].as<float>();
-    
+    // Each lookup falls back to the existing default when the key is missing or
+    // null, so a partial config.yaml degrades gracefully instead of throwing an
+    // uncaught YAML::Exception. A single try/catch covers any remaining
+    // type-conversion errors (e.g. a non-numeric threshold).
+    try {
+        cfg.score_threshold   = y["detection"]["score_threshold"].as<float>(cfg.score_threshold);
+        cfg.nms_threshold     = y["detection"]["nms_threshold"].as<float>(cfg.nms_threshold);
 
-    cfg.model_file        = y["model"]["model_file"].as<std::string>();
-    cfg.class_names_file  = y["model"]["class_names_file"].as<std::string>();
-    cfg.model_shape       = cv::Size(y["model"]["model_width"].as<int>(),
-                                     y["model"]["model_height"].as<int>());
+        cfg.model_file        = y["model"]["model_file"].as<std::string>(cfg.model_file);
+        cfg.class_names_file  = y["model"]["class_names_file"].as<std::string>(cfg.class_names_file);
+        cfg.model_shape       = cv::Size(
+            y["model"]["model_width"].as<int>(static_cast<int>(cfg.model_shape.width)),
+            y["model"]["model_height"].as<int>(static_cast<int>(cfg.model_shape.height)));
 
-    cfg.framework         = frameworkFromString(y["backend"]["framework"].as<std::string>());
-    cfg.use_cuda          = y["backend"]["use_cuda"].as<bool>();
+        if (y["backend"]["framework"])
+            cfg.framework     = frameworkFromString(y["backend"]["framework"].as<std::string>());
+        cfg.use_cuda          = y["backend"]["use_cuda"].as<bool>(cfg.use_cuda);
 
-    cfg.source            = sourceFromString(y["input"]["source"].as<std::string>());
-    cfg.webcam_index      = y["input"]["webcam_index"].as<int>();
-    cfg.video_input_file  = y["input"]["video_input_file"].as<std::string>();
-    cfg.video_output_file = y["input"]["video_output_file"].as<std::string>();
+        if (y["input"]["source"])
+            cfg.source        = sourceFromString(y["input"]["source"].as<std::string>());
+        cfg.webcam_index      = y["input"]["webcam_index"].as<int>(cfg.webcam_index);
+        cfg.video_input_file  = y["input"]["video_input_file"].as<std::string>(cfg.video_input_file);
+        cfg.video_output_file = y["input"]["video_output_file"].as<std::string>(cfg.video_output_file);
 
-    cfg.show_frames       = y["display"]["show_frames"].as<bool>();
+        cfg.show_frames       = y["display"]["show_frames"].as<bool>(cfg.show_frames);
+    } catch (const YAML::Exception& e) {
+        std::cerr << "Invalid value in YAML config: " << e.what()
+                  << " – falling back to defaults for the remaining fields." << std::endl;
+    }
     return cfg;
 }
 #endif // USE_YAML_CONFIG
