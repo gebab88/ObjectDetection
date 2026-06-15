@@ -37,6 +37,16 @@ void expectYellowPixelNear(const cv::Mat& frame, int x, int y) {
     }
     EXPECT_TRUE(found) << "Expected yellow bounding-box pixel near (" << x << ", " << y << ")";
 }
+
+size_t countOccurrences(const std::string& text, const std::string& needle) {
+    size_t count = 0;
+    size_t pos = 0;
+    while ((pos = text.find(needle, pos)) != std::string::npos) {
+        ++count;
+        pos += needle.size();
+    }
+    return count;
+}
 }
 
 TEST(DetectModelFormat, ReturnsYOLO12ForYolo12m) {
@@ -122,7 +132,7 @@ TEST(YoloPostprocess, DecodeEndToEndDrawsBoundingBoxAndLabel) {
 
     testing::internal::CaptureStdout();
     const bool decoded = yolo_postprocess::decodeEndToEnd(output.data(), detections, fields, frame,
-                                                          cv::Size2f(100, 100), classes, 0.5f);
+                                                          cv::Size2f(100, 100), classes, 0.5f, 0.5f);
     const std::string stdout_text = testing::internal::GetCapturedStdout();
 
     EXPECT_TRUE(decoded);
@@ -151,13 +161,44 @@ TEST(YoloPostprocess, DecodeEndToEndIgnoresSegmentationFields) {
 
     testing::internal::CaptureStdout();
     const bool decoded = yolo_postprocess::decodeEndToEnd(output.data(), detections, fields, frame,
-                                                          cv::Size2f(100, 100), classes, 0.5f);
+                                                          cv::Size2f(100, 100), classes, 0.5f, 0.5f);
     const std::string stdout_text = testing::internal::GetCapturedStdout();
 
     EXPECT_TRUE(decoded);
     EXPECT_GT(changedPixelCount(before, frame), 0);
     expectYellowPixelNear(frame, 20, 20);
     EXPECT_NE(stdout_text.find("truck"), std::string::npos);
+}
+
+TEST(YoloPostprocess, DecodeEndToEndAppliesNmsToOverlappingBoxes) {
+    constexpr int detections = 2;
+    constexpr int fields = 6; // x1, y1, x2, y2, score, class id
+    std::vector<float> output(detections * fields, 0.0f);
+
+    output[0 * fields + 0] = 20.0f;
+    output[0 * fields + 1] = 20.0f;
+    output[0 * fields + 2] = 70.0f;
+    output[0 * fields + 3] = 80.0f;
+    output[0 * fields + 4] = 0.95f;
+    output[0 * fields + 5] = 1.0f;
+
+    output[1 * fields + 0] = 21.0f;
+    output[1 * fields + 1] = 21.0f;
+    output[1 * fields + 2] = 71.0f;
+    output[1 * fields + 3] = 81.0f;
+    output[1 * fields + 4] = 0.90f;
+    output[1 * fields + 5] = 1.0f;
+
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const std::vector<std::string> classes = {"person", "truck"};
+
+    testing::internal::CaptureStdout();
+    const bool decoded = yolo_postprocess::decodeEndToEnd(output.data(), detections, fields, frame,
+                                                          cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+    const std::string stdout_text = testing::internal::GetCapturedStdout();
+
+    EXPECT_TRUE(decoded);
+    EXPECT_EQ(countOccurrences(stdout_text, "truck"), 1u);
 }
 
 TEST(YoloPostprocess, DecodeRawRejectsShapeThatDoesNotFitClassList) {

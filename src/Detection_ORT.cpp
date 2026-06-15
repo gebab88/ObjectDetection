@@ -140,6 +140,12 @@ void Detection_ORT::detect( cv::Mat &frame) {
             const float* logits = outputs[0].GetTensorData<float>();
             const float* boxes = outputs[1].GetTensorData<float>();
             const cv::Size frame_size(frame.cols, frame.rows);
+            std::vector<float> scores;
+            std::vector<int> class_ids;
+            std::vector<cv::Rect> detections;
+            scores.reserve(numDets);
+            class_ids.reserve(numDets);
+            detections.reserve(numDets);
 
             for (int i = 0; i < numDets; ++i) {
                 float score = -std::numeric_limits<float>::infinity();
@@ -163,12 +169,12 @@ void Detection_ORT::detect( cv::Mat &frame) {
                                                              frame_size);
                 if (box.empty()) continue;
 
-                rectangle(frame, box, cv::Scalar(0,255,255), 1);
-                std::string label = class_list[class_id] + "  " + std::to_string(int(100 * score)) + "%" ;
-                std::cout << label << '\n';
-                putText(frame, label, cv::Point(box.x, std::max(0, box.y - 5)),
-                        cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
+                scores.push_back(score);
+                class_ids.push_back(class_id);
+                detections.push_back(box);
             }
+            yolo_postprocess::drawNmsDetections(frame, detections, class_ids, scores, class_list,
+                                                score_threshold_, nms_threshold_);
             return;
         }
     }
@@ -190,7 +196,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
     }
 
     if (yolo_postprocess::decodeEndToEnd(data_, shape[1], shape[2], frame, model_shape_,
-                                         class_list, score_threshold_)) {
+                                         class_list, score_threshold_, nms_threshold_)) {
         return;
     }
 

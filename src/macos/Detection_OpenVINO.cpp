@@ -58,7 +58,7 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
     }
 
     if (yolo_postprocess::decodeEndToEnd(data_, shape[1], shape[2], frame, model_shape_,
-                                         class_list, score_threshold_)) {
+                                         class_list, score_threshold_, nms_threshold_)) {
         return;
     }
 

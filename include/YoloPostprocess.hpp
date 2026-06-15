@@ -2,6 +2,7 @@
 #define OBJECTDETECTION_YOLOPOSTPROCESS_HPP
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -32,20 +33,121 @@ inline cv::Rect clippedRect(float left, float top, float right, float bottom, co
     return cv::Rect(cv::Point(x1, y1), cv::Point(x2, y2));
 }
 
+inline std::string detectionLabel(int class_id,
+                                  float score,
+                                  const std::vector<std::string>& class_list) {
+    return class_list[class_id] + "  " + std::to_string(static_cast<int>(100 * score)) + "%";
+}
+
+inline bool intersectsAny(const cv::Rect& rect, const std::vector<cv::Rect>& occupied) {
+    for (const auto& used : occupied) {
+        if ((rect & used).area() > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline cv::Rect makeLabelRect(const cv::Size& frame_size,
+                              int preferred_left,
+                              int preferred_top,
+                              const cv::Size& text_size,
+                              int baseline,
+                              int padding,
+                              cv::Point& text_origin) {
+    const int label_width = std::min(frame_size.width, text_size.width + 2 * padding);
+    const int label_height = std::min(frame_size.height, text_size.height + baseline + 2 * padding);
+    const int left = std::clamp(preferred_left, 0, std::max(0, frame_size.width - label_width));
+    const int top = std::clamp(preferred_top, 0, std::max(0, frame_size.height - label_height));
+
+    text_origin = cv::Point(left + padding, top + padding + std::min(text_size.height, label_height));
+    return cv::Rect(left, top, label_width, label_height);
+}
+
 inline void drawDetection(cv::Mat& frame,
                           const cv::Rect& box,
                           int class_id,
                           float score,
-                          const std::vector<std::string>& class_list) {
+                          const std::vector<std::string>& class_list,
+                          std::vector<cv::Rect>* occupied_labels = nullptr) {
     if (class_id < 0 || class_id >= static_cast<int>(class_list.size())) {
         return;
     }
 
     cv::rectangle(frame, box, cv::Scalar(0, 255, 255), 1);
-    const std::string label = class_list[class_id] + "  " + std::to_string(static_cast<int>(100 * score)) + "%";
+    const std::string label = detectionLabel(class_id, score, class_list);
     std::cout << label << '\n';
-    cv::putText(frame, label, cv::Point(box.x, std::max(0, box.y - 5)),
-                cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
+
+    constexpr int font_face = cv::FONT_HERSHEY_SIMPLEX;
+    constexpr int thickness = 1;
+    constexpr int padding = 3;
+    double font_scale = 0.55;
+    int baseline = 0;
+    cv::Size text_size = cv::getTextSize(label, font_face, font_scale, thickness, &baseline);
+    while (font_scale > 0.35 && text_size.width + 2 * padding > frame.cols) {
+        font_scale -= 0.05;
+        text_size = cv::getTextSize(label, font_face, font_scale, thickness, &baseline);
+    }
+
+    const cv::Size frame_size(frame.cols, frame.rows);
+    const int label_height = std::min(frame.rows, text_size.height + baseline + 2 * padding);
+    const std::array<int, 3> candidate_tops = {
+        box.y - label_height - 2,
+        box.y + box.height + 2,
+        box.y + 2,
+    };
+
+    cv::Point text_origin;
+    cv::Rect label_rect;
+    bool placed = false;
+    for (size_t i = 0; i < candidate_tops.size(); ++i) {
+        const int top = candidate_tops[i];
+        if (i < 2 && (top < 0 || top + label_height > frame.rows)) {
+            continue;
+        }
+
+        const cv::Rect candidate = makeLabelRect(frame_size, box.x, top, text_size,
+                                                baseline, padding, text_origin);
+        if (!occupied_labels || !intersectsAny(candidate, *occupied_labels)) {
+            label_rect = candidate;
+            placed = true;
+            break;
+        }
+    }
+
+    if (!placed) {
+        label_rect = makeLabelRect(frame_size, box.x, box.y + 2, text_size,
+                                   baseline, padding, text_origin);
+    }
+
+    if (occupied_labels) {
+        occupied_labels->push_back(label_rect);
+    }
+
+    cv::rectangle(frame, label_rect, cv::Scalar(0, 0, 0), cv::FILLED);
+    cv::rectangle(frame, label_rect, cv::Scalar(0, 255, 255), 1);
+    cv::putText(frame, label, text_origin, font_face, font_scale,
+                cv::Scalar(255, 255, 255), thickness, cv::LINE_AA);
+}
+
+inline void drawNmsDetections(cv::Mat& frame,
+                              const std::vector<cv::Rect>& boxes,
+                              const std::vector<int>& class_ids,
+                              const std::vector<float>& scores,
+                              const std::vector<std::string>& class_list,
+                              float score_threshold,
+                              float nms_threshold) {
+    if (boxes.empty()) {
+        return;
+    }
+
+    std::vector<int> nms_result;
+    cv::dnn::NMSBoxes(boxes, scores, score_threshold, nms_threshold, nms_result);
+
+    std::vector<cv::Rect> occupied_labels;
+    for (const int idx : nms_result) {
+        drawDetection(frame, boxes[idx], class_ids[idx], scores[idx], class_list, &occupied_labels);
+    }
 }
 
 inline bool decodeEndToEnd(const float* data,
@@ -54,7 +156,8 @@ inline bool decodeEndToEnd(const float* data,
                            cv::Mat& frame,
                            cv::Size2f model_shape,
                            const std::vector<std::string>& class_list,
-                           float score_threshold) {
+                           float score_threshold,
+                           float nms_threshold) {
     constexpr int64_t max_end_to_end_detections = 1000;
     constexpr int64_t max_end_to_end_fields = 128;
 
@@ -88,6 +191,13 @@ inline bool decodeEndToEnd(const float* data,
         return fields_first ? data[field * num_dets + det] : data[det * fields + field];
     };
 
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<cv::Rect> boxes;
+    scores.reserve(num_dets);
+    class_ids.reserve(num_dets);
+    boxes.reserve(num_dets);
+
     for (int i = 0; i < num_dets; ++i) {
         const float score = value_at(4, i);
         if (score < score_threshold) {
@@ -108,9 +218,12 @@ inline bool decodeEndToEnd(const float* data,
             continue;
         }
 
-        drawDetection(frame, box, class_id, score, class_list);
+        scores.push_back(score);
+        class_ids.push_back(class_id);
+        boxes.push_back(box);
     }
 
+    drawNmsDetections(frame, boxes, class_ids, scores, class_list, score_threshold, nms_threshold);
     return true;
 }
 
@@ -184,12 +297,7 @@ inline bool decodeRaw(const float* data,
         boxes.push_back(box);
     }
 
-    std::vector<int> nms_result;
-    cv::dnn::NMSBoxes(boxes, scores, score_threshold, nms_threshold, nms_result);
-    for (const int idx : nms_result) {
-        drawDetection(frame, boxes[idx], class_ids[idx], scores[idx], class_list);
-    }
-
+    drawNmsDetections(frame, boxes, class_ids, scores, class_list, score_threshold, nms_threshold);
     return true;
 }
 
