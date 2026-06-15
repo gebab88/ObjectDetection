@@ -42,14 +42,15 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
     const int64_t dim2 = outs[0].size[2];
 
     if (model_format_ == MODEL_FORMAT::YOLO26) {
-        if (!yolo_postprocess::decodeEndToEnd(data_, dim1, dim2, frame, model_shape_, class_list, score_threshold_)) {
+        if (!yolo_postprocess::decodeEndToEnd(data_, dim1, dim2, frame, model_shape_,
+                                              class_list, score_threshold_, nms_threshold_)) {
             yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
         }
     } else if (model_format_ == MODEL_FORMAT::YOLO12 || model_format_ == MODEL_FORMAT::YOLOE) {
         if (yolo_postprocess::decodeRaw(data_, dim1, dim2, frame, model_shape_, class_list,
                                         score_threshold_, nms_threshold_) ||
             yolo_postprocess::decodeEndToEnd(data_, dim1, dim2, frame, model_shape_, class_list,
-                                             score_threshold_)) {
+                                             score_threshold_, nms_threshold_)) {
             return;
         } else {
             yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
