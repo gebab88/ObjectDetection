@@ -151,7 +151,13 @@ guarantee that every model operator runs on the NPU.
 
 ## Configuration
 
-Runtime parameters are loaded from `config.yaml` when yaml-cpp is available:
+Runtime parameters are loaded from `config.yaml` when yaml-cpp is available. A
+documented template is version-controlled as `config.example.yaml` – copy it to
+`config.yaml` and adjust:
+
+```bash
+cp config.example.yaml config.yaml
+```
 
 ```yaml
 detection:
@@ -267,15 +273,23 @@ ObjectDetection/
 | `Detection_OpenVINO`| OpenVINO backend *(macOS only)*                              |
 | `VideoHandler`      | Opens video/webcam, crops to square, writes output video     |
 | `Timer`             | High-resolution wall-clock timer using `std::chrono`         |
-| `Tracker`           | (In progress) OpenCV object tracker wrapper                  |
+| `Tracker`           | **Stub** – thin `track()` wrapper around an OpenCV tracker; not wired into the pipeline (see Known Limitations) |
 
 ---
 
 ## Known Limitations / TODO
 
 - **OpenVINO**: Automatically disabled unless CMake detects an Intel CPU.
-- **Tracker**: The `Tracker` module is stubbed out and not integrated into the main loop.
-- **OpenCV DNN + yolo26**: The detection branch for this combination is not yet implemented (`// in progress`).
+- **Tracker**: `src/Tracker.cpp` is an intentional stub. It exposes a single
+  free function, `track(frame, tracker, trackingBox)`, that updates an OpenCV
+  tracker and draws the tracked box, but nothing calls it — the main loop runs
+  per-frame detection only, without object tracking across frames. The file is
+  compiled so the stub stays build-checked; integrating it (instantiating a
+  tracker, seeding it from a detection, and calling `track()` in the frame loop)
+  is left as future work.
+- **OpenCV DNN + yolo26**: Not supported. OpenCV's DNN module cannot load the
+  end-to-end YOLO26 graph, so `main()` does not offer the OpenCV backend for
+  YOLO26 models. Use the ONNX Runtime or OpenVINO backend instead.
 
 ---
 

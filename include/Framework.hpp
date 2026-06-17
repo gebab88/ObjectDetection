@@ -12,16 +12,15 @@ enum class FRAMEWORK {  OpenCV,
 };
 
 enum class MODEL_FORMAT {
-    YOLO12,   // klassisches YOLO-Format: [batch, fields, detections]
-    YOLO26,   // end-to-end Format:       [batch, detections, 6]
+    YOLO12,   // classic YOLO layout:  [batch, fields, detections]
+    YOLO26,   // end-to-end layout:    [batch, detections, 6]
     YOLOE,    // open-vocabulary YOLOE export; prompts/classes are baked in
     Unknown
 };
 
-// Hilfsfunktion (einmal, wiederverwendbar):
-// Erkennt das Modellformat anhand des Dateinamens. Substring-Matching (statt
-// exakter Dateinamen) erlaubt beliebige Varianten/Groessen und Umbenennungen,
-// z. B. yolo12s, yolo12n.onnx, yolo26m_v2.onnx, yoloe-26m-seg-pf.onnx.
+// Detects the model layout from the file name. Substring matching (instead of
+// exact file names) tolerates arbitrary variants/sizes and renames, e.g.
+// yolo12s, yolo12n.onnx, yolo26m_v2.onnx, yoloe-26m-seg-pf.onnx.
 inline MODEL_FORMAT detectModelFormat(const std::string& model_file) {
     std::string fname = std::filesystem::path(model_file).filename().string();
     std::transform(fname.begin(), fname.end(), fname.begin(), [](unsigned char c) {

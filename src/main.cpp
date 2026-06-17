@@ -2,7 +2,6 @@
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
-#include <opencv2/tracking.hpp>
 #include <algorithm>
 #include <iostream>
 #include <fstream>
@@ -28,10 +27,10 @@
 #include "Detection_OpenVINO.hpp"
 #endif
 
-volatile sig_atomic_t ret = 1;
+volatile sig_atomic_t keep_running = 1;
 
 void signalHandler(int /*sig*/) {
-    ret = false;
+    keep_running = 0;
 }
 
 int main() {
@@ -78,41 +77,53 @@ int main() {
     VideoHandler video(cfg.video_output_file);
 
     std::unique_ptr<Detection> detection;
-    if (cfg.framework == FRAMEWORK::OpenCV) {
-        detection = std::make_unique<Detection_OpenCV>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold, cfg.use_cuda);
-    }
-    #ifdef HAVE_ONNX_RUNTIME
-    else if (cfg.framework == FRAMEWORK::ONNXRuntime) {
-        detection = std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
-    }
-    #endif
+    try {
+        if (cfg.framework == FRAMEWORK::OpenCV) {
+            detection = std::make_unique<Detection_OpenCV>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold, cfg.use_cuda);
+        }
+        #ifdef HAVE_ONNX_RUNTIME
+        else if (cfg.framework == FRAMEWORK::ONNXRuntime) {
+            detection = std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
+        }
+        #endif
 
-    #ifdef HAVE_OPENVINO
-    else if (cfg.framework == FRAMEWORK::OpenVINO) {
-        detection = std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
-    }
-    #endif
+        #ifdef HAVE_OPENVINO
+        else if (cfg.framework == FRAMEWORK::OpenVINO) {
+            detection = std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
+        }
+        #endif
 
-    else {
-        std::cerr << "Unsupported backend for this platform." << std::endl;
-        exit(EXIT_FAILURE);
+        else {
+            std::cerr << "Unsupported backend for this platform." << std::endl;
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to initialise the detection backend (model '" << cfg.model_file
+                  << "'): " << e.what() << std::endl;
+        return 1;
     }
 
+    bool source_opened = false;
     if (cfg.source == SOURCE::VIDEO) {
-        video.open_file(cfg.video_input_file);
+        source_opened = video.open_file(cfg.video_input_file);
     } else if (cfg.source == SOURCE::WEBCAM) {
-        video.open_webcam(cfg.webcam_index);
+        source_opened = video.open_webcam(cfg.webcam_index);
     } else {
         std::cerr << "Please select a valid source: VIDEO or WEBCAM?" << std::endl;
-        exit(EXIT_FAILURE);
+        return 1;
+    }
+    if (!source_opened) {
+        return 1;
     }
 
-    video.set_video_writer();
+    if (!video.set_video_writer()) {
+        return 1;
+    }
     detection->load_class_list(cfg.class_names_file);
 
     cv::Mat frame;
     signal(SIGINT, signalHandler);
-    while (video.read(frame) && ret) {
+    while (keep_running && video.read(frame)) {
         std::cout << "Read a new frame: " << frame.cols << "x" << frame.rows << std::endl;
         video.crop_frame(frame);
         detection->detect(frame);

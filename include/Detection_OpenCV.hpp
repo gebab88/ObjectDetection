@@ -18,7 +18,6 @@ class Detection_OpenCV : public Detection {
     void detect( cv::Mat &frame ) override;
     private:
 
-    std::vector<int> nms_result;
     std::vector<cv::Mat> outs;
     cv::dnn::Net net;
     float nms_threshold_;

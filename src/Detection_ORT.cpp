@@ -22,7 +22,11 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
 
     if (!use_coreml) {
         opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
-        opts.SetOptimizedModelFilePath("model_optimized.onnx");
+        // Derive the cache name from the model so switching models does not make
+        // ORT load a stale optimized graph produced for a different network.
+        const std::string optimized_path =
+            std::filesystem::path(model_file).filename().string() + ".optimized.onnx";
+        opts.SetOptimizedModelFilePath(optimized_path.c_str());
     }
     
     #if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
@@ -41,6 +45,10 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
         }
         const std::string cache_dir = std::filesystem::absolute(".ort_coreml_cache").string();
         std::filesystem::create_directories(cache_dir);
+        // Deliberate process-wide side effect: the CoreML EP compiles models into
+        // TMPDIR before moving them into the model cache. Pointing TMPDIR at the
+        // project-local cache keeps those (large) intermediates out of the system
+        // temp dir and next to the persisted cache.
         setenv("TMPDIR", cache_dir.c_str(), 1);
         coreml_options[kCoremlProviderOption_ModelCacheDirectory] = cache_dir;
 
@@ -58,8 +66,7 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
         }
     }
     #elif defined(__linux__) && defined(__aarch64__)
-        // Linux-spezifischer Code
-        // XNNPACK aktivieren → nutzt automatisch verfügbare CPU-Features
+        // Linux/ARM: enable XNNPACK, which automatically uses available CPU features.
         opts.AppendExecutionProvider("XNNPACK");
     #endif
 
@@ -89,9 +96,16 @@ Detection_ORT::Detection_ORT(float score_threshold,
         output_names_.emplace_back(session_.GetOutputNameAllocated(i, allocator_).get());
     }
 
-    std::cout << "[YoloDetector] Modell geladen: " << model_file_ << "\n";
+    // Cache the C-string views once; output_names_ is never modified afterwards,
+    // so these pointers stay valid and Run() no longer rebuilds them per frame.
+    output_name_ptrs_.reserve(output_names_.size());
+    for (const auto& output_name : output_names_) {
+        output_name_ptrs_.push_back(output_name.c_str());
+    }
+
+    std::cout << "[YoloDetector] Model loaded: " << model_file_ << "\n";
     auto providers = Ort::GetAvailableProviders();
-    std::cout << "[Provider] Verfuegbare Execution Provider in dieser ONNX Runtime:\n";
+    std::cout << "[Provider] Execution providers available in this ONNX Runtime:\n";
     for (const auto& p : providers)
         std::cout << "  - " << p << "\n";
 }
@@ -102,14 +116,13 @@ void Detection_ORT::detect( cv::Mat &frame) {
 
     cv::resize(frame, resized_, {W, H});
 
-    // BGR → RGB, uint8 → float32, normalisieren [0,1]
+    // BGR -> RGB, uint8 -> float32, normalise to [0,1]
     resized_.convertTo(blob_, CV_32F, 1.0 / 255.0);
     cvtColor(blob_, blob_, cv::COLOR_BGR2RGB);
 
-    // HWC → CHW in Eingabetensor kopieren
+    // HWC -> CHW: copy each channel plane into the input tensor
     split(blob_, chans_);
 
-    // data_  = input_tensor.data<float>();
     for (int c = 0; c < 3; ++c)
         std::memcpy(input_.data() + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
 
@@ -119,14 +132,9 @@ void Detection_ORT::detect( cv::Mat &frame) {
                                                             input_.data(), input_.size(),
                                                             input_shape.data(), input_shape.size() );
     const char* in_names[]  = { input_name_.c_str()  };
-    std::vector<const char*> out_names;
-    out_names.reserve(output_names_.size());
-    for (const auto& output_name : output_names_) {
-        out_names.push_back(output_name.c_str());
-    }
 
     auto outputs = session_.Run( Ort::RunOptions{nullptr}, in_names,  &input_tensor, 1,
-                                 out_names.data(), out_names.size());
+                                 output_name_ptrs_.data(), output_name_ptrs_.size());
     auto shape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
 
     if (outputs.size() >= 2) {
@@ -188,16 +196,34 @@ void Detection_ORT::detect( cv::Mat &frame) {
         return;
     }
 
-    data_ = outputs[0].GetTensorMutableData<float>();
-    if ((model_format_ == MODEL_FORMAT::YOLO12 || model_format_ == MODEL_FORMAT::YOLOE) &&
-        yolo_postprocess::decodeRaw(data_, shape[1], shape[2], frame, model_shape_,
-                                    class_list, score_threshold_, nms_threshold_)) {
-        return;
-    }
+    const float* const data = outputs[0].GetTensorData<float>();
 
-    if (yolo_postprocess::decodeEndToEnd(data_, shape[1], shape[2], frame, model_shape_,
-                                         class_list, score_threshold_, nms_threshold_)) {
-        return;
+    // Pick the decoder from the known model format: raw (NMS-free) for YOLO12,
+    // end-to-end for YOLO26, and raw-then-end-to-end for the YOLOE export, whose
+    // ONNX may be either depending on the --nms export flag.
+    switch (model_format_) {
+        case MODEL_FORMAT::YOLO12:
+            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
+                                            class_list, score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        case MODEL_FORMAT::YOLO26:
+            if (yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
+                                                 class_list, score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        case MODEL_FORMAT::YOLOE:
+            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
+                                            class_list, score_threshold_, nms_threshold_) ||
+                yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
+                                                 class_list, score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        default:
+            break;
     }
 
     yolo_postprocess::warnUnsupportedShape("ONNX Runtime", shape);

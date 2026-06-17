@@ -81,34 +81,39 @@ VideoHandler::~VideoHandler(){
         cv::destroyAllWindows();
 }
 
-void VideoHandler::open_file(const std::string &input_path) {
+bool VideoHandler::open_file(const std::string &input_path) {
     // Implementation to open video file
     cap_.open(input_path);
     if (!cap_.isOpened()) {
         std::cerr << "Error: Could not open video file: " << input_path << std::endl;
-    } else {
-        std::cout << "Successfully opened video file: " << input_path << std::endl;
+        return false;
     }
+    std::cout << "Successfully opened video file: " << input_path << std::endl;
     fps = static_cast<float>(cap_.get(cv::CAP_PROP_FPS));
     frame_width = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_WIDTH));
     frame_height = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_HEIGHT));
     printVideoProperties();
+    return true;
 }
 
-void VideoHandler::open_webcam(const int &camera_index) {
+bool VideoHandler::open_webcam(const int &camera_index) {
     // Implementation to open webcam
     cap_.open(camera_index);
     if (!cap_.isOpened()) {
         std::cerr << "Error: Could not open webcam with index: " << camera_index << std::endl;
-    } else {
-        std::cout << "Successfully opened webcam with index: " << camera_index << std::endl;
+        return false;
     }
-    fps = 5.0;
+    std::cout << "Successfully opened webcam with index: " << camera_index << std::endl;
+    // Use the camera's reported rate when available; fall back to a conservative
+    // 5 fps for devices that do not report a meaningful CAP_PROP_FPS.
+    const double reported_fps = cap_.get(cv::CAP_PROP_FPS);
+    fps = (reported_fps > 1.0) ? static_cast<float>(reported_fps) : 5.0f;
     frame_width = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_WIDTH));
     frame_height = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_HEIGHT));
+    return true;
 }
 
-void VideoHandler::set_video_writer() {
+bool VideoHandler::set_video_writer() {
     int min_side_len = std::min(frame_height, frame_width);
     const cv::Size output_size(min_side_len, min_side_len);
 
@@ -122,7 +127,7 @@ void VideoHandler::set_video_writer() {
             output_path_ = candidate.path;
             std::cout << "Successfully opened video writer with path: " << output_path_
                       << " (" << candidate.label << ")" << std::endl;
-            return;
+            return true;
         }
 
         std::cerr << "Warning: Could not open video writer with path: " << candidate.path
@@ -130,20 +135,20 @@ void VideoHandler::set_video_writer() {
     }
 
     std::cerr << "Error: Could not open any video writer for requested path: " << output_path_ << std::endl;
-    exit(EXIT_FAILURE);
+    return false;
 }
 
 void VideoHandler::crop_frame( cv::Mat &frame ) {
-        //Crop to square frame or yolov format
-        int min_side_len = std::min(frame_height, frame_width);
-        int excess_len_side;
-        if (frame_width > frame_height) {
-            excess_len_side = (frame_width - min_side_len) / 2;
-            frame = frame(cv::Range(0,min_side_len), cv::Range(excess_len_side,min_side_len + excess_len_side));
-        } else {
-            excess_len_side = (frame_height - min_side_len) / 2;
-            frame = frame(cv::Range(excess_len_side,min_side_len + excess_len_side), cv::Range(0,min_side_len));
-        }
+        // Center-crop the frame to a square so it matches the square model input.
+        // NOTE: this discards the left/right (or top/bottom) borders, so objects
+        // near the frame edges are lost. Letterboxing (padding instead of cropping)
+        // would preserve the full field of view at the cost of some resolution.
+        // Derive the crop from the actual frame size rather than the cached capture
+        // properties, which can disagree with the decoded frame for some codecs.
+        const int min_side_len = std::min(frame.cols, frame.rows);
+        const int x = (frame.cols - min_side_len) / 2;
+        const int y = (frame.rows - min_side_len) / 2;
+        frame = frame(cv::Rect(x, y, min_side_len, min_side_len));
     }
 
 void VideoHandler::printVideoProperties(){

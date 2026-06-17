@@ -13,6 +13,13 @@
 // Tests for detectModelFormat helper
 
 namespace {
+// These decode tests assert on the labels printed to stdout, so opt into the
+// detection logging that is disabled by default on the real-time path.
+const bool kDetectionLoggingEnabled = [] {
+    yolo_postprocess::logDetectionsToStdout() = true;
+    return true;
+}();
+
 int changedPixelCount(const cv::Mat& before, const cv::Mat& after) {
     cv::Mat diff;
     cv::absdiff(before, after, diff);
