@@ -38,6 +38,7 @@ class Detection_ORT : public Detection {
     std::vector<float>                input_;
     std::vector<cv::Mat>              chans_;
     float                             nms_threshold_;
+    Ort::MemoryInfo                   memory_info_;
 };
 
 #endif //OBJECTDETECTION_DETECTIONHANDLER_ORT_H
