@@ -257,7 +257,7 @@ ObjectDetection/
     ├── VideoHandler.cpp
     ├── Tracker.cpp
     ├── Timer.cpp
-    └── macos/
+    └── openvino/
         └── Detection_OpenVINO.cpp
 ```
 

@@ -124,7 +124,6 @@ int main() {
     cv::Mat frame;
     signal(SIGINT, signalHandler);
     while (keep_running && video.read(frame)) {
-        std::cout << "Read a new frame: " << frame.cols << "x" << frame.rows << std::endl;
         video.crop_frame(frame);
         detection->detect(frame);
         if (cfg.show_frames) {

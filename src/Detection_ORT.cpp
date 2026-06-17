@@ -45,11 +45,9 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
         }
         const std::string cache_dir = std::filesystem::absolute(".ort_coreml_cache").string();
         std::filesystem::create_directories(cache_dir);
-        // Deliberate process-wide side effect: the CoreML EP compiles models into
-        // TMPDIR before moving them into the model cache. Pointing TMPDIR at the
-        // project-local cache keeps those (large) intermediates out of the system
-        // temp dir and next to the persisted cache.
-        setenv("TMPDIR", cache_dir.c_str(), 1);
+        // Persist compiled CoreML artifacts in a project-local cache. We no longer
+        // override the process-wide TMPDIR; the CoreML EP uses the system temp dir
+        // for its intermediate compilation files, which is its normal behaviour.
         coreml_options[kCoremlProviderOption_ModelCacheDirectory] = cache_dir;
 
         try {

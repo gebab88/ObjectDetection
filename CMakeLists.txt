@@ -187,7 +187,7 @@ if(ENABLE_OPENVINO)
     find_package(OpenVINO QUIET)
 
     if(OpenVINO_FOUND)
-        list(APPEND PLATFORM_SOURCES src/macos/Detection_OpenVINO.cpp)
+        list(APPEND PLATFORM_SOURCES src/openvino/Detection_OpenVINO.cpp)
         list(APPEND PLATFORM_LIBS openvino::runtime)
         list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_OPENVINO)
         # Point the run-time path at the TBB that ships next to the discovered
@@ -231,7 +231,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${PLATFORM_LIBS}
 )
 
-# Optional: Konsolen-Output für Debugging-Zwecke
+# Optional: console output for debugging purposes
 message(STATUS "OpenCV library status:")
 message(STATUS "    version: ${OpenCV_VERSION}")
 message(STATUS "    libraries: ${OpenCV_LIBS}")
