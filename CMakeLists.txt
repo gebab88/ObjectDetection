@@ -97,7 +97,7 @@ set(PLATFORM_LIBS ${OpenCV_LIBS})
 set(PLATFORM_INCLUDE_DIRS ${OpenCV_INCLUDE_DIRS})
 set(PROJECT_COMPILE_DEFINITIONS)
 
-# Gemeinsame Quelldateien
+# Common source files
 set(COMMON_SOURCES
     src/main.cpp
     src/VideoHandler.cpp
@@ -172,8 +172,16 @@ if(ENABLE_ONNX_RUNTIME)
 endif()
 
 if(ENABLE_OPENVINO)
-    if(APPLE AND EXISTS "/opt/intel/openvino_2025.4.0/runtime/cmake")
-        list(APPEND CMAKE_PREFIX_PATH "/opt/intel/openvino_2025.4.0/runtime/cmake")
+    # Discover any system OpenVINO install instead of pinning a single version.
+    # A user-supplied OpenVINO_DIR or CMAKE_PREFIX_PATH still takes precedence.
+    if(NOT DEFINED OpenVINO_DIR)
+        file(GLOB OPENVINO_CMAKE_DIRS "/opt/intel/openvino_*/runtime/cmake")
+        if(OPENVINO_CMAKE_DIRS)
+            list(SORT OPENVINO_CMAKE_DIRS)
+            list(REVERSE OPENVINO_CMAKE_DIRS)            # prefer the newest version
+            list(GET OPENVINO_CMAKE_DIRS 0 OPENVINO_NEWEST_CMAKE_DIR)
+            list(APPEND CMAKE_PREFIX_PATH "${OPENVINO_NEWEST_CMAKE_DIR}")
+        endif()
     endif()
 
     find_package(OpenVINO QUIET)
@@ -182,20 +190,23 @@ if(ENABLE_OPENVINO)
         list(APPEND PLATFORM_SOURCES src/macos/Detection_OpenVINO.cpp)
         list(APPEND PLATFORM_LIBS openvino::runtime)
         list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_OPENVINO)
-        if(EXISTS "/opt/intel/openvino_2025.4.0/runtime/3rdparty/tbb/lib")
-            set(CMAKE_BUILD_RPATH "/opt/intel/openvino_2025.4.0/runtime/3rdparty/tbb/lib")
+        # Point the run-time path at the TBB that ships next to the discovered
+        # runtime, regardless of the installed OpenVINO version.
+        get_filename_component(OPENVINO_RUNTIME_DIR "${OpenVINO_DIR}/.." ABSOLUTE)
+        if(EXISTS "${OPENVINO_RUNTIME_DIR}/3rdparty/tbb/lib")
+            set(CMAKE_BUILD_RPATH "${OPENVINO_RUNTIME_DIR}/3rdparty/tbb/lib")
         endif()
-        message(STATUS "OpenVINO backend enabled")
+        message(STATUS "OpenVINO backend enabled (OpenVINO_DIR=${OpenVINO_DIR})")
     else()
         message(WARNING "OpenVINO requested on Intel CPU, but package was not found: backend disabled.")
     endif()
 endif()
 
-# Plattformspezifische Quelldateien
+# Platform-specific source files
 if(APPLE)
     message(STATUS "Building for macOS")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64")
-    message(STATUS "ARM-Architektur erkannt: ${CMAKE_SYSTEM_PROCESSOR}")
+    message(STATUS "ARM architecture detected: ${CMAKE_SYSTEM_PROCESSOR}")
     message(STATUS "Building for ARM on Linux")
 endif()
 

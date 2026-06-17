@@ -19,10 +19,18 @@ src/.DS_Store
 *.xml
 .idea/
 *.mp4
+*.mov
 *.ninja*
 *.yaml
+# Keep the documented, version-controlled sample config
+!config.example.yaml
 *.json
 .ort_coreml_cache/
+# TorchScript / large model artifacts (e.g. mobileclip*.ts)
+*.ts
+# CTest / build artifacts
+DartConfiguration.tcl
+Testing/
 # Locally built test executables
 /tests_runner
 /inference_tests_runner

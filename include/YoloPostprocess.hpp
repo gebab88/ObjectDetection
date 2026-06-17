@@ -15,6 +15,19 @@
 
 namespace yolo_postprocess {
 
+// Optional debug logging of decoded detection labels to stdout. Off by default
+// so the real-time detection path stays quiet; tests opt in to inspect labels.
+inline bool& logDetectionsToStdout() {
+    static bool enabled = false;
+    return enabled;
+}
+
+// YOLO class scores come in two flavours: some exports already apply the final
+// sigmoid (values in [0,1]), others emit raw logits. A value that is already a
+// valid probability is returned unchanged, otherwise it is squashed through a
+// sigmoid. NOTE: this is a best-effort heuristic for mixed exports, not an exact
+// inverse — a raw logit that happens to fall inside [0,1] is returned unchanged.
+// Prefer models whose post-processing matches the decoder used here.
 inline float confidence(float value) {
     if (value >= 0.0f && value <= 1.0f) {
         return value;
@@ -76,7 +89,9 @@ inline void drawDetection(cv::Mat& frame,
 
     cv::rectangle(frame, box, cv::Scalar(0, 255, 255), 1);
     const std::string label = detectionLabel(class_id, score, class_list);
-    std::cout << label << '\n';
+    if (logDetectionsToStdout()) {
+        std::cout << label << '\n';
+    }
 
     constexpr int font_face = cv::FONT_HERSHEY_SIMPLEX;
     constexpr int thickness = 1;
@@ -247,10 +262,10 @@ inline bool decodeRaw(const float* data,
         return false;
     }
 
-    if (fields == 6 && class_count == 2 && !fields_first && num_dets < 1000) {
-        return false;
-    }
-
+    // Raw (NMS-free) layout has 4 + class_count fields. The caller decides which
+    // decoder to run based on the known MODEL_FORMAT (raw for YOLO12, end-to-end
+    // for YOLO26, raw-then-end-to-end for the open-vocabulary YOLOE export), so
+    // we no longer guess between raw and end-to-end from the field count here.
     const float x_scale = static_cast<float>(frame.cols) / model_shape.width;
     const float y_scale = static_cast<float>(frame.rows) / model_shape.height;
     const cv::Size frame_size(frame.cols, frame.rows);

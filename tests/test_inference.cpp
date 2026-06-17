@@ -77,14 +77,12 @@ TEST(RealOnnxInference, DrawsBoundingBoxOnVideoFrame) {
         cv::Mat cropped = cropSquare(frame);
         const cv::Mat before = cropped.clone();
 
-        testing::internal::CaptureStdout();
         detector.detect(cropped);
-        const std::string stdout_text = testing::internal::GetCapturedStdout();
 
         const int changed = changedPixelCount(before, cropped);
         best_changed_pixels = std::max(best_changed_pixels, changed);
 
-        if (changed >= min_changed_pixels && !stdout_text.empty()) {
+        if (changed >= min_changed_pixels) {
             SUCCEED() << "Model drew detections on frame " << frame_index
                       << " with " << changed << " changed pixels.";
             return;

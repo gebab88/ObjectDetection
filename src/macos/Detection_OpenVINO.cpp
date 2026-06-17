@@ -25,24 +25,24 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
 
     cv::resize(frame, resized_, {W, H});
 
-    // BGR → RGB, uint8 → float32, normalisieren [0,1]
+    // BGR -> RGB, uint8 -> float32, normalise to [0,1]
     resized_.convertTo(blob_, CV_32F, 1.0 / 255.0);
     cvtColor(blob_, blob_, cv::COLOR_BGR2RGB);
 
-    // HWC → CHW in Eingabetensor kopieren
+    // HWC -> CHW: copy each channel plane into the input tensor
     split(blob_, chans_);
 
-    data_  = input_.data<float>();
+    float* const input_data = input_.data<float>();
     for (int c = 0; c < 3; ++c)
-        std::memcpy(data_ + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
+        std::memcpy(input_data + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
 
     infer_request_.set_input_tensor(input_);
 
-    // ── Inferenz ──────────────────────────────────────────────────────
+    // ── Inference ───────────────────────────────────────────────────────
     infer_request_.infer();
 
     output_ = infer_request_.get_output_tensor(0);
-    if (output_.get_size() == 0) { std::cerr << "Leerer Output!\n"; }
+    if (output_.get_size() == 0) { std::cerr << "Empty output tensor!\n"; }
 
     ov::Shape shape = output_.get_shape();
     if (shape.size() != 3) {
@@ -50,16 +50,34 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
         return;
     }
 
-    data_ = output_.data<float>();
-    if ((model_format_ == MODEL_FORMAT::YOLO12 || model_format_ == MODEL_FORMAT::YOLOE) &&
-        yolo_postprocess::decodeRaw(data_, shape[1], shape[2], frame, model_shape_,
-                                    class_list, score_threshold_, nms_threshold_)) {
-        return;
-    }
+    const float* const data = output_.data<float>();
 
-    if (yolo_postprocess::decodeEndToEnd(data_, shape[1], shape[2], frame, model_shape_,
-                                         class_list, score_threshold_, nms_threshold_)) {
-        return;
+    // Pick the decoder from the known model format: raw (NMS-free) for YOLO12,
+    // end-to-end for YOLO26, and raw-then-end-to-end for the YOLOE export, whose
+    // ONNX may be either depending on the --nms export flag.
+    switch (model_format_) {
+        case MODEL_FORMAT::YOLO12:
+            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
+                                            class_list, score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        case MODEL_FORMAT::YOLO26:
+            if (yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
+                                                 class_list, score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        case MODEL_FORMAT::YOLOE:
+            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
+                                            class_list, score_threshold_, nms_threshold_) ||
+                yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
+                                                 class_list, score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        default:
+            break;
     }
 
     yolo_postprocess::warnUnsupportedShape("OpenVINO", std::vector<int64_t>(shape.begin(), shape.end()));

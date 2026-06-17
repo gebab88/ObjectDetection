@@ -37,23 +37,31 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
         return;
     }
 
-    data_ = outs[0].ptr<float>();
+    float* const data = outs[0].ptr<float>();
     const int64_t dim1 = outs[0].size[1];
     const int64_t dim2 = outs[0].size[2];
 
-    if (model_format_ == MODEL_FORMAT::YOLO26) {
-        if (!yolo_postprocess::decodeEndToEnd(data_, dim1, dim2, frame, model_shape_,
-                                              class_list, score_threshold_, nms_threshold_)) {
-            yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
-        }
-    } else if (model_format_ == MODEL_FORMAT::YOLO12 || model_format_ == MODEL_FORMAT::YOLOE) {
-        if (yolo_postprocess::decodeRaw(data_, dim1, dim2, frame, model_shape_, class_list,
-                                        score_threshold_, nms_threshold_) ||
-            yolo_postprocess::decodeEndToEnd(data_, dim1, dim2, frame, model_shape_, class_list,
-                                             score_threshold_, nms_threshold_)) {
-            return;
-        } else {
-            yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
-        }
+    // OpenCV DNN cannot load the end-to-end YOLO26 graph, so main() never selects
+    // this backend for YOLO26 (see supportedBackends). Only the raw YOLO12 layout
+    // and the YOLOE export (raw, with an end-to-end fallback) are handled here.
+    switch (model_format_) {
+        case MODEL_FORMAT::YOLO12:
+            if (yolo_postprocess::decodeRaw(data, dim1, dim2, frame, model_shape_, class_list,
+                                            score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        case MODEL_FORMAT::YOLOE:
+            if (yolo_postprocess::decodeRaw(data, dim1, dim2, frame, model_shape_, class_list,
+                                            score_threshold_, nms_threshold_) ||
+                yolo_postprocess::decodeEndToEnd(data, dim1, dim2, frame, model_shape_, class_list,
+                                                 score_threshold_, nms_threshold_)) {
+                return;
+            }
+            break;
+        default:
+            break;
     }
+
+    yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
 }

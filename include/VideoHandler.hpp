@@ -13,12 +13,12 @@ class VideoHandler {
 
         void crop_frame( cv::Mat &frame );
         void printVideoProperties();
-        void open_file(const std::string &input_path);
-        void open_webcam(const int &camera_index);
+        bool open_file(const std::string &input_path);
+        bool open_webcam(const int &camera_index);
         bool read( cv::Mat &frame );
         void showFrame( const std::string &windowName,  const cv::Mat &frame ) ;
         void write( cv::Mat &frame );
-        void set_video_writer();
+        bool set_video_writer();
 
     private:
         std::string output_path_;
