@@ -82,7 +82,8 @@ Detection_ORT::Detection_ORT(float score_threshold,
                             allocator_(),
                             session_(env_, model_file_.c_str(), session_opts_),
                             input_name_(session_.GetInputNameAllocated(0, allocator_).get()),
-                            nms_threshold_(nms_threshold) {
+                            nms_threshold_(nms_threshold),
+                            memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
 
     plane_ = (size_t)model_shape_.width * model_shape_.height;
     input_ = std::vector<float>(3 * plane_);
@@ -125,8 +126,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
         std::memcpy(input_.data() + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
 
     std::array<int64_t, 4> input_shape = {1, 3, static_cast<int64_t>(H), static_cast<int64_t>(W)};
-    auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info,
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info_,
                                                             input_.data(), input_.size(),
                                                             input_shape.data(), input_shape.size() );
     const char* in_names[]  = { input_name_.c_str()  };
