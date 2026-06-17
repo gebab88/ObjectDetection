@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "VideoHandler.hpp"
+#include "FrameCrop.hpp"
 
 // int VideoHandler::fourcc = static_cast<int>(cap.get(cv::CAP_PROP_FOURCC));
 
@@ -139,16 +140,11 @@ bool VideoHandler::set_video_writer() {
 }
 
 void VideoHandler::crop_frame( cv::Mat &frame ) {
-        // Center-crop the frame to a square so it matches the square model input.
-        // NOTE: this discards the left/right (or top/bottom) borders, so objects
-        // near the frame edges are lost. Letterboxing (padding instead of cropping)
-        // would preserve the full field of view at the cost of some resolution.
-        // Derive the crop from the actual frame size rather than the cached capture
-        // properties, which can disagree with the decoded frame for some codecs.
-        const int min_side_len = std::min(frame.cols, frame.rows);
-        const int x = (frame.cols - min_side_len) / 2;
-        const int y = (frame.rows - min_side_len) / 2;
-        frame = frame(cv::Rect(x, y, min_side_len, min_side_len));
+        // Center-crop to a square matching the model input. The crop is derived
+        // from the actual frame size (not the cached capture properties, which can
+        // disagree with the decoded frame for some codecs). See FrameCrop.hpp for
+        // the field-of-view trade-off this implies.
+        frame = frame(frame_crop::centeredSquare(frame.cols, frame.rows));
     }
 
 void VideoHandler::printVideoProperties(){

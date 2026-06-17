@@ -2,9 +2,12 @@
 
 #include "Framework.hpp"
 #include "YoloPostprocess.hpp"
+#include "FrameCrop.hpp"
+#include "config_loader.hpp"
 
 #include <opencv2/core.hpp>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -223,4 +226,69 @@ TEST(YoloPostprocess, DecodeRawRejectsShapeThatDoesNotFitClassList) {
 
     EXPECT_FALSE(decoded);
     EXPECT_EQ(changedPixelCount(before, frame), 0);
+}
+
+// confidence(): probabilities pass through, raw logits get squashed via sigmoid.
+
+TEST(Confidence, PassesProbabilitiesThrough) {
+    EXPECT_FLOAT_EQ(yolo_postprocess::confidence(0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(yolo_postprocess::confidence(1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(yolo_postprocess::confidence(0.42f), 0.42f);
+}
+
+TEST(Confidence, AppliesSigmoidToOutOfRangeLogits) {
+    EXPECT_NEAR(yolo_postprocess::confidence(4.0f), 1.0f / (1.0f + std::exp(-4.0f)), 1e-6f);
+    EXPECT_NEAR(yolo_postprocess::confidence(-4.0f), 1.0f / (1.0f + std::exp(4.0f)), 1e-6f);
+    EXPECT_GT(yolo_postprocess::confidence(10.0f), 0.99f);
+    EXPECT_LT(yolo_postprocess::confidence(-10.0f), 0.01f);
+}
+
+// frame_crop::centeredSquare(): largest centered square ROI inside the frame.
+
+TEST(FrameCrop, CentersWiderThanTallFrame) {
+    EXPECT_EQ(frame_crop::centeredSquare(200, 100), cv::Rect(50, 0, 100, 100));
+}
+
+TEST(FrameCrop, CentersTallerThanWideFrame) {
+    EXPECT_EQ(frame_crop::centeredSquare(100, 200), cv::Rect(0, 50, 100, 100));
+}
+
+TEST(FrameCrop, ReturnsFullFrameWhenAlreadySquare) {
+    EXPECT_EQ(frame_crop::centeredSquare(128, 128), cv::Rect(0, 0, 128, 128));
+}
+
+TEST(FrameCrop, StaysWithinFrameForOddDimensions) {
+    const cv::Rect r = frame_crop::centeredSquare(201, 100);
+    EXPECT_EQ(r.width, 100);
+    EXPECT_EQ(r.height, 100);
+    EXPECT_GE(r.x, 0);
+    EXPECT_LE(r.x + r.width, 201);
+    EXPECT_EQ(r.y, 0);
+}
+
+// config_loader string -> enum helpers, including their fallback behaviour.
+
+TEST(ConfigParsing, FrameworkFromStringKnownValues) {
+    EXPECT_EQ(frameworkFromString("OpenCV"), FRAMEWORK::OpenCV);
+    EXPECT_EQ(frameworkFromString("OpenVINO"), FRAMEWORK::OpenVINO);
+    EXPECT_EQ(frameworkFromString("ONNXRuntime"), FRAMEWORK::ONNXRuntime);
+}
+
+TEST(ConfigParsing, FrameworkFromStringFallsBackToOpenCV) {
+    testing::internal::CaptureStderr();
+    const FRAMEWORK framework = frameworkFromString("does-not-exist");
+    testing::internal::GetCapturedStderr();
+    EXPECT_EQ(framework, FRAMEWORK::OpenCV);
+}
+
+TEST(ConfigParsing, SourceFromStringKnownValues) {
+    EXPECT_EQ(sourceFromString("VIDEO"), SOURCE::VIDEO);
+    EXPECT_EQ(sourceFromString("WEBCAM"), SOURCE::WEBCAM);
+}
+
+TEST(ConfigParsing, SourceFromStringFallsBackToVideo) {
+    testing::internal::CaptureStderr();
+    const SOURCE source = sourceFromString("does-not-exist");
+    testing::internal::GetCapturedStderr();
+    EXPECT_EQ(source, SOURCE::VIDEO);
 }

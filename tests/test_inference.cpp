@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Detection_ORT.hpp"
+#include "FrameCrop.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -24,10 +25,7 @@
 
 namespace {
 cv::Mat cropSquare(const cv::Mat& frame) {
-    const int min_side = std::min(frame.cols, frame.rows);
-    const int x = std::max(0, (frame.cols - min_side) / 2);
-    const int y = std::max(0, (frame.rows - min_side) / 2);
-    return frame(cv::Rect(x, y, min_side, min_side)).clone();
+    return frame(frame_crop::centeredSquare(frame.cols, frame.rows)).clone();
 }
 
 int changedPixelCount(const cv::Mat& before, const cv::Mat& after) {
