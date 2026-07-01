@@ -19,8 +19,6 @@ class Detection_OpenVINO : public Detection {
     ov::Core core_;
     ov::Tensor input_, output_;
     ov::InferRequest infer_request_;
-    size_t plane_;
-    std::vector<cv::Mat> chans_;
     float nms_threshold_;
 };
 

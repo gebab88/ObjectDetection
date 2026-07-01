@@ -27,7 +27,6 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
         outs.clear();
 
         // Convert the image into a blob and set it as input to the network
-        //cv::resize(frame, resized_, {640, 640});
         cv::dnn::blobFromImage(frame, blob_, 1.0/255.0, model_shape_, cv::Scalar(), true, false);
         net.setInput(blob_);
         net.forward(outs, net.getUnconnectedOutLayersNames());
@@ -42,26 +41,10 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
     const int64_t dim2 = outs[0].size[2];
 
     // OpenCV DNN cannot load the end-to-end YOLO26 graph, so main() never selects
-    // this backend for YOLO26 (see supportedBackends). Only the raw YOLO12 layout
-    // and the YOLOE export (raw, with an end-to-end fallback) are handled here.
-    switch (model_format_) {
-        case MODEL_FORMAT::YOLO12:
-            if (yolo_postprocess::decodeRaw(data, dim1, dim2, frame, model_shape_, class_list,
-                                            score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        case MODEL_FORMAT::YOLOE:
-            if (yolo_postprocess::decodeRaw(data, dim1, dim2, frame, model_shape_, class_list,
-                                            score_threshold_, nms_threshold_) ||
-                yolo_postprocess::decodeEndToEnd(data, dim1, dim2, frame, model_shape_, class_list,
-                                                 score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        default:
-            break;
+    // this backend for YOLO26 (see supportedBackendsFor); in practice only YOLO12
+    // and the YOLOE export reach this point.
+    if (!yolo_postprocess::decodeByFormat(model_format_, data, dim1, dim2, frame, model_shape_,
+                                          class_list, score_threshold_, nms_threshold_)) {
+        yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
     }
-
-    yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
 }

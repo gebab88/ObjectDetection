@@ -85,10 +85,6 @@ Detection_ORT::Detection_ORT(float score_threshold,
                             nms_threshold_(nms_threshold),
                             memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
 
-    plane_ = (size_t)model_shape_.width * model_shape_.height;
-    input_ = std::vector<float>(3 * plane_);
-    chans_ = std::vector<cv::Mat>(3);
-
     const size_t output_count = session_.GetOutputCount();
     output_names_.reserve(output_count);
     for (size_t i = 0; i < output_count; ++i) {
@@ -113,21 +109,14 @@ void Detection_ORT::detect( cv::Mat &frame) {
     const int W = static_cast<int>(model_shape_.width);
     const int H = static_cast<int>(model_shape_.height);
 
-    cv::resize(frame, resized_, {W, H});
-
-    // BGR -> RGB, uint8 -> float32, normalise to [0,1]
-    resized_.convertTo(blob_, CV_32F, 1.0 / 255.0);
-    cvtColor(blob_, blob_, cv::COLOR_BGR2RGB);
-
-    // HWC -> CHW: copy each channel plane into the input tensor
-    split(blob_, chans_);
-
-    for (int c = 0; c < 3; ++c)
-        std::memcpy(input_.data() + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
+    // Resize, scale to [0,1], swap BGR->RGB and pack into a 1x3xHxW CHW float blob
+    // in a single call; the ORT input tensor wraps the blob's buffer directly.
+    cv::dnn::blobFromImage(frame, blob_, 1.0 / 255.0, cv::Size(W, H), cv::Scalar(),
+                           /*swapRB=*/true, /*crop=*/false);
 
     std::array<int64_t, 4> input_shape = {1, 3, static_cast<int64_t>(H), static_cast<int64_t>(W)};
     Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info_,
-                                                            input_.data(), input_.size(),
+                                                            blob_.ptr<float>(), blob_.total(),
                                                             input_shape.data(), input_shape.size() );
     const char* in_names[]  = { input_name_.c_str()  };
 
@@ -195,34 +184,8 @@ void Detection_ORT::detect( cv::Mat &frame) {
     }
 
     const float* const data = outputs[0].GetTensorData<float>();
-
-    // Pick the decoder from the known model format: raw (NMS-free) for YOLO12,
-    // end-to-end for YOLO26, and raw-then-end-to-end for the YOLOE export, whose
-    // ONNX may be either depending on the --nms export flag.
-    switch (model_format_) {
-        case MODEL_FORMAT::YOLO12:
-            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
-                                            class_list, score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        case MODEL_FORMAT::YOLO26:
-            if (yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
-                                                 class_list, score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        case MODEL_FORMAT::YOLOE:
-            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
-                                            class_list, score_threshold_, nms_threshold_) ||
-                yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
-                                                 class_list, score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        default:
-            break;
+    if (!yolo_postprocess::decodeByFormat(model_format_, data, shape[1], shape[2], frame,
+                                          model_shape_, class_list, score_threshold_, nms_threshold_)) {
+        yolo_postprocess::warnUnsupportedShape("ONNX Runtime", shape);
     }
-
-    yolo_postprocess::warnUnsupportedShape("ONNX Runtime", shape);
 }

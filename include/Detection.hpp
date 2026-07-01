@@ -25,7 +25,6 @@ class Detection{
         MODEL_FORMAT model_format_;
         cv::Mat blob_;
         float score_threshold_;
-        cv::Mat resized_;
         cv::Size2f model_shape_;
         std::vector<std::string> class_list;
 };

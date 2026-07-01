@@ -13,6 +13,8 @@
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include "Framework.hpp"
+
 namespace yolo_postprocess {
 
 // Optional debug logging of decoded detection labels to stdout. Off by default
@@ -314,6 +316,38 @@ inline bool decodeRaw(const float* data,
 
     drawNmsDetections(frame, boxes, class_ids, scores, class_list, score_threshold, nms_threshold);
     return true;
+}
+
+// Dispatches to the right decoder(s) based on the known model format: raw
+// (NMS-free) for YOLO12, end-to-end for YOLO26, and raw-then-end-to-end for the
+// YOLOE export (whose ONNX may be either, depending on the --nms export flag).
+// Returns true when a decoder handled the output. Shared by all backends so the
+// format<->decoder rule lives in one place.
+inline bool decodeByFormat(MODEL_FORMAT model_format,
+                           const float* data,
+                           int64_t dim1,
+                           int64_t dim2,
+                           cv::Mat& frame,
+                           cv::Size2f model_shape,
+                           const std::vector<std::string>& class_list,
+                           float score_threshold,
+                           float nms_threshold) {
+    switch (model_format) {
+        case MODEL_FORMAT::YOLO12:
+            return decodeRaw(data, dim1, dim2, frame, model_shape, class_list,
+                             score_threshold, nms_threshold);
+        case MODEL_FORMAT::YOLO26:
+            return decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
+                                  score_threshold, nms_threshold);
+        case MODEL_FORMAT::YOLOE:
+            return decodeRaw(data, dim1, dim2, frame, model_shape, class_list,
+                             score_threshold, nms_threshold) ||
+                   decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
+                                  score_threshold, nms_threshold);
+        case MODEL_FORMAT::Unknown:
+            return false;
+    }
+    return false;
 }
 
 inline void warnUnsupportedShape(const char* backend, const std::vector<int64_t>& shape) {
