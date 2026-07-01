@@ -35,8 +35,15 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **OpenVINO** 2025.x *(optional, enabled by CMake only when an Intel CPU is detected)*
 
 ### Install OpenCV (macOS)
+
+Homebrew:
 ```bash
 brew install opencv
+```
+
+Or MacPorts (installs under `/opt/local`, which CMake already searches):
+```bash
+sudo port install opencv4
 ```
 
 ### Install OpenCV (Linux / ARM)
