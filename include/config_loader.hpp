@@ -1,6 +1,7 @@
 #ifndef CONFIG_HPP
 #define CONFIG_HPP
 
+#include <filesystem>
 #include <string>
 #include <iostream>
 #include <opencv2/core.hpp>
@@ -56,6 +57,36 @@ inline SOURCE sourceFromString(const std::string& s) {
     return SOURCE::VIDEO;
 };
 
+// ─── Helper: resolve a path relative to a base directory ─────────────────────
+// Absolute paths and (for safety) an empty base are returned unchanged, so the
+// behaviour only changes for relative paths when a base directory is known.
+inline std::string resolveAgainst(const std::string& base_dir, const std::string& path) {
+    if (path.empty() || base_dir.empty()) {
+        return path;
+    }
+    const std::filesystem::path p(path);
+    if (p.is_absolute()) {
+        return path;
+    }
+    return (std::filesystem::path(base_dir) / p).string();
+}
+
+// Locate config.yaml when no explicit --config path was given. Searches the
+// current directory first, then one level up, so running from build/ still
+// finds the repo-root config. Falls back to "config.yaml" (loadConfigYAML then
+// reports the missing file and uses defaults).
+inline std::string resolveConfigPath(const std::string& explicit_path) {
+    if (!explicit_path.empty()) {
+        return explicit_path;
+    }
+    for (const char* candidate : {"config.yaml", "../config.yaml"}) {
+        if (std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return "config.yaml";
+}
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // YAML  (requires yaml-cpp – https://github.com/jbeder/yaml-cpp)
@@ -69,43 +100,54 @@ inline Config loadConfigYAML(const std::string& path) {
     Config cfg;  // start from defaults; every field below falls back to these
 
     YAML::Node y;
+    bool loaded = false;
     try {
         y = YAML::LoadFile(path);
+        loaded = true;
     } catch (const YAML::Exception& e) {
         std::cerr << "Could not open YAML config: " << e.what()
                   << " – using default configuration." << std::endl;
-        return cfg;
     }
 
     // Each lookup falls back to the existing default when the key is missing or
     // null, so a partial config.yaml degrades gracefully instead of throwing an
     // uncaught YAML::Exception. A single try/catch covers any remaining
     // type-conversion errors (e.g. a non-numeric threshold).
-    try {
-        cfg.score_threshold   = y["detection"]["score_threshold"].as<float>(cfg.score_threshold);
-        cfg.nms_threshold     = y["detection"]["nms_threshold"].as<float>(cfg.nms_threshold);
+    if (loaded) {
+        try {
+            cfg.score_threshold   = y["detection"]["score_threshold"].as<float>(cfg.score_threshold);
+            cfg.nms_threshold     = y["detection"]["nms_threshold"].as<float>(cfg.nms_threshold);
 
-        cfg.model_file        = y["model"]["model_file"].as<std::string>(cfg.model_file);
-        cfg.class_names_file  = y["model"]["class_names_file"].as<std::string>(cfg.class_names_file);
-        cfg.model_shape       = cv::Size(
-            y["model"]["model_width"].as<int>(static_cast<int>(cfg.model_shape.width)),
-            y["model"]["model_height"].as<int>(static_cast<int>(cfg.model_shape.height)));
+            cfg.model_file        = y["model"]["model_file"].as<std::string>(cfg.model_file);
+            cfg.class_names_file  = y["model"]["class_names_file"].as<std::string>(cfg.class_names_file);
+            cfg.model_shape       = cv::Size(
+                y["model"]["model_width"].as<int>(static_cast<int>(cfg.model_shape.width)),
+                y["model"]["model_height"].as<int>(static_cast<int>(cfg.model_shape.height)));
 
-        if (y["backend"]["framework"])
-            cfg.framework     = frameworkFromString(y["backend"]["framework"].as<std::string>());
-        cfg.use_cuda          = y["backend"]["use_cuda"].as<bool>(cfg.use_cuda);
+            if (y["backend"]["framework"])
+                cfg.framework     = frameworkFromString(y["backend"]["framework"].as<std::string>());
+            cfg.use_cuda          = y["backend"]["use_cuda"].as<bool>(cfg.use_cuda);
 
-        if (y["input"]["source"])
-            cfg.source        = sourceFromString(y["input"]["source"].as<std::string>());
-        cfg.webcam_index      = y["input"]["webcam_index"].as<int>(cfg.webcam_index);
-        cfg.video_input_file  = y["input"]["video_input_file"].as<std::string>(cfg.video_input_file);
-        cfg.video_output_file = y["input"]["video_output_file"].as<std::string>(cfg.video_output_file);
+            if (y["input"]["source"])
+                cfg.source        = sourceFromString(y["input"]["source"].as<std::string>());
+            cfg.webcam_index      = y["input"]["webcam_index"].as<int>(cfg.webcam_index);
+            cfg.video_input_file  = y["input"]["video_input_file"].as<std::string>(cfg.video_input_file);
+            cfg.video_output_file = y["input"]["video_output_file"].as<std::string>(cfg.video_output_file);
 
-        cfg.show_frames       = y["display"]["show_frames"].as<bool>(cfg.show_frames);
-    } catch (const YAML::Exception& e) {
-        std::cerr << "Invalid value in YAML config: " << e.what()
-                  << " – falling back to defaults for the remaining fields." << std::endl;
+            cfg.show_frames       = y["display"]["show_frames"].as<bool>(cfg.show_frames);
+        } catch (const YAML::Exception& e) {
+            std::cerr << "Invalid value in YAML config: " << e.what()
+                      << " – falling back to defaults for the remaining fields." << std::endl;
+        }
     }
+
+    // Resolve relative asset paths against the config file's directory so the
+    // program can be started from any working directory (e.g. build/).
+    const std::string base = std::filesystem::path(path).parent_path().string();
+    cfg.model_file        = resolveAgainst(base, cfg.model_file);
+    cfg.class_names_file  = resolveAgainst(base, cfg.class_names_file);
+    cfg.video_input_file  = resolveAgainst(base, cfg.video_input_file);
+    cfg.video_output_file = resolveAgainst(base, cfg.video_output_file);
     return cfg;
 }
 #endif // USE_YAML_CONFIG

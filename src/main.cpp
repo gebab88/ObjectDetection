@@ -4,6 +4,7 @@
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <string>
 
 #include "config_loader.hpp"
 #include "VideoHandler.hpp"
@@ -18,13 +19,42 @@ void signalHandler(int /*sig*/) {
     keep_running = 0;
 }
 
-int main() {
-    // std::cout << cv::getBuildInformation() << std::endl;
+namespace {
+void printUsage(const char* program) {
+    std::cout << "Usage: " << program << " [--config <path>]\n"
+              << "  -c, --config <path>  Path to config.yaml (default: search ./ then ../).\n"
+              << "  -h, --help           Show this help.\n";
+}
+}
+
+int main(int argc, char** argv) {
+    // ── Parse command-line arguments ────────────────────────────────────────────
+    std::string config_path;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--config" || arg == "-c") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: " << arg << " requires a path argument." << std::endl;
+                return 1;
+            }
+            config_path = argv[++i];
+        } else if (arg == "--help" || arg == "-h") {
+            printUsage(argv[0]);
+            return 0;
+        } else {
+            std::cerr << "Unknown argument: " << arg << std::endl;
+            printUsage(argv[0]);
+            return 1;
+        }
+    }
 
     // ── Load config ───────────────────────────────────────────────────────────
 #if defined(USE_YAML_CONFIG)
-    const Config cfg = loadConfigYAML("config.yaml");
+    const Config cfg = loadConfigYAML(resolveConfigPath(config_path));
 #else
+    if (!config_path.empty()) {
+        std::cerr << "Note: --config is ignored; this build has no YAML support." << std::endl;
+    }
     const Config cfg;  // use default values from struct
 #endif
 
