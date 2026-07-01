@@ -17,7 +17,7 @@ class Detection{
                     const std::string &model_file);
         virtual ~Detection()  = default;
 
-        void load_class_list(const std::string &class_file);
+        bool load_class_list(const std::string &class_file);
         virtual void detect(cv::Mat &frame) = 0;
 
     protected:

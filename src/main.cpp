@@ -87,7 +87,10 @@ int main(int argc, char** argv) {
     if (!video.set_video_writer()) {
         return 1;
     }
-    detection->load_class_list(cfg.class_names_file);
+    if (!detection->load_class_list(cfg.class_names_file)) {
+        std::cerr << "Aborting: no usable class names loaded." << std::endl;
+        return 1;
+    }
 
     cv::Mat frame;
     signal(SIGINT, signalHandler);
