@@ -32,7 +32,7 @@ struct Config {
     // Input / Output
     SOURCE       source           = SOURCE::VIDEO;
     int          webcam_index     = 0;
-    std::string  video_input_file = "test.mov";
+    std::string  video_input_file = "tests/test_mov1.MOV";
     std::string  video_output_file= "output.mp4";
 
     // Display

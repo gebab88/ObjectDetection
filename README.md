@@ -179,7 +179,7 @@ backend:
 input:
   source: "VIDEO"            # WEBCAM | VIDEO
   webcam_index: 0
-  video_input_file: "test.mov"
+  video_input_file: "tests/test_mov1.MOV"
   video_output_file: "output.mp4"
 
 display:
