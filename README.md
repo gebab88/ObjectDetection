@@ -213,9 +213,21 @@ without it, this C++ application performs NMS after inference.
 Place your model file (`.onnx`) and the class names file in the project directory, then run:
 
 ```bash
-cd build
-./ObjectDetection
+./build/ObjectDetection                       # auto-find config.yaml (./ then ../)
+./build/ObjectDetection --config path/to/config.yaml
 ```
+
+Command-line options:
+
+| Option | Description |
+|--------|-------------|
+| `-c`, `--config <path>` | Path to `config.yaml`. If omitted, it is searched in the current directory and one level up (so running from `build/` finds the repo-root config). |
+| `-h`, `--help` | Show usage. |
+
+**Path resolution:** relative paths inside `config.yaml` (`model_file`,
+`class_names_file`, `video_input_file`, `video_output_file`) are resolved
+against the config file's directory, so the program can be started from any
+working directory (e.g. `build/`). Absolute paths are used as-is.
 
 The processed video is saved to `input.video_output_file` from `config.yaml`.
 If the requested container/codec cannot be opened, the writer tries compatible

@@ -295,6 +295,25 @@ TEST(ConfigParsing, SourceFromStringFallsBackToVideo) {
     EXPECT_EQ(source, SOURCE::VIDEO);
 }
 
+// resolveAgainst: relative asset paths are resolved against the config directory.
+
+TEST(ConfigPaths, ResolvesRelativePathAgainstBase) {
+    EXPECT_EQ(resolveAgainst("..", "yoloe.onnx"), std::string("../yoloe.onnx"));
+    EXPECT_EQ(resolveAgainst("/opt/app", "tests/clip.mov"), std::string("/opt/app/tests/clip.mov"));
+}
+
+TEST(ConfigPaths, LeavesAbsolutePathUnchanged) {
+    EXPECT_EQ(resolveAgainst("/base", "/abs/model.onnx"), std::string("/abs/model.onnx"));
+}
+
+TEST(ConfigPaths, LeavesPathUnchangedWhenBaseIsEmpty) {
+    EXPECT_EQ(resolveAgainst("", "model.onnx"), std::string("model.onnx"));
+}
+
+TEST(ConfigPaths, LeavesEmptyPathUnchanged) {
+    EXPECT_EQ(resolveAgainst("/base", ""), std::string(""));
+}
+
 // supportedBackendsFor: format -> compatible backends (build-independent).
 
 namespace {
