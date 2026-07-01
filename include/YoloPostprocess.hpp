@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -351,17 +352,22 @@ inline bool decodeByFormat(MODEL_FORMAT model_format,
 }
 
 inline void warnUnsupportedShape(const char* backend, const std::vector<int64_t>& shape) {
-    static bool warned = false;
-    if (warned) {
-        return;
-    }
-
-    std::cerr << backend << " unsupported detection output shape: [";
+    // Warn once per distinct (backend, shape) message: this keeps the frame loop
+    // from spamming stderr for a repeated shape, while a different backend or a
+    // new shape still surfaces.
+    std::string message = std::string(backend) + " unsupported detection output shape: [";
     for (size_t i = 0; i < shape.size(); ++i) {
-        std::cerr << shape[i] << (i + 1 < shape.size() ? ", " : "");
+        message += std::to_string(shape[i]);
+        if (i + 1 < shape.size()) {
+            message += ", ";
+        }
     }
-    std::cerr << "]" << std::endl;
-    warned = true;
+    message += "]";
+
+    static std::set<std::string> warned;
+    if (warned.insert(message).second) {
+        std::cerr << message << std::endl;
+    }
 }
 
 } // namespace yolo_postprocess
