@@ -124,6 +124,9 @@ void Detection_ORT::detect( cv::Mat &frame) {
                                  output_name_ptrs_.data(), output_name_ptrs_.size());
     auto shape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
 
+    // NMS-free YOLOE exports with two outputs: [1, numDets, numClasses] class
+    // logits plus a separate [1, numDets, 4] box tensor. This layout is decoded
+    // here rather than via decodeByFormat, which handles the single-output cases.
     if (outputs.size() >= 2) {
         auto boxes_shape = outputs[1].GetTensorTypeAndShapeInfo().GetShape();
         if (shape.size() == 3 && boxes_shape.size() == 3 &&
@@ -155,6 +158,9 @@ void Detection_ORT::detect( cv::Mat &frame) {
 
                 if (score < score_threshold_ || class_id < 0) continue;
 
+                // This export emits boxes as cxcywh normalised to [0,1], so scale
+                // by the frame size (unlike the single-output path, which decodes
+                // model-space coordinates and rescales by frame/model in decode*).
                 const float cx = boxes[i * 4] * frame.cols;
                 const float cy = boxes[i * 4 + 1] * frame.rows;
                 const float w = boxes[i * 4 + 2] * frame.cols;
