@@ -310,6 +310,12 @@ ObjectDetection/
 - **OpenCV DNN + yolo26**: Not supported. OpenCV's DNN module cannot load the
   end-to-end YOLO26 graph, so `main()` does not offer the OpenCV backend for
   YOLO26 models. Use the ONNX Runtime or OpenVINO backend instead.
+- **CI coverage of optional backends** *(deferred, YAGNI)*: CI currently builds
+  only the OpenCV-based configurations, so the ONNX Runtime / OpenVINO backends
+  and the real inference test are exercised locally but not in CI. A CI job that
+  installs ONNX Runtime (and OpenVINO on an Intel runner) to run the inference
+  test, plus stricter warnings (`-Wall -Wextra`), is intentionally left as a TODO
+  and will be added when the need arises.
 
 ---
 
