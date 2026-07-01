@@ -452,3 +452,34 @@ TEST(DecodeByFormat, UnknownFormatDecodesNothing) {
     EXPECT_FALSE(decoded);
     EXPECT_EQ(changedPixelCount(before, frame), 0);
 }
+
+// warnUnsupportedShape: warn once per distinct (backend, shape), not once ever.
+// Uses backend names unique to this test so it is independent of test order.
+
+TEST(WarnUnsupportedShape, WarnsOncePerDistinctMessage) {
+    // Repeated identical (backend, shape) warns only the first time.
+    testing::internal::CaptureStderr();
+    yolo_postprocess::warnUnsupportedShape("WarnTestBackendA", {1, 2, 3});
+    const std::string first = testing::internal::GetCapturedStderr();
+    EXPECT_NE(first.find("WarnTestBackendA"), std::string::npos);
+
+    testing::internal::CaptureStderr();
+    yolo_postprocess::warnUnsupportedShape("WarnTestBackendA", {1, 2, 3});
+    EXPECT_TRUE(testing::internal::GetCapturedStderr().empty());
+}
+
+TEST(WarnUnsupportedShape, WarnsAgainForDifferentBackendOrShape) {
+    testing::internal::CaptureStderr();
+    yolo_postprocess::warnUnsupportedShape("WarnTestBackendB", {1, 2, 3});
+    EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+
+    // Same backend, different shape -> warns again.
+    testing::internal::CaptureStderr();
+    yolo_postprocess::warnUnsupportedShape("WarnTestBackendB", {1, 4, 5});
+    EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+
+    // Different backend, same shape -> warns again.
+    testing::internal::CaptureStderr();
+    yolo_postprocess::warnUnsupportedShape("WarnTestBackendC", {1, 2, 3});
+    EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+}
