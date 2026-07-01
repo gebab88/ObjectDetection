@@ -14,13 +14,13 @@ Detection::Detection(
             model_format_ = detectModelFormat(model_file);
 }
 
-void Detection::load_class_list(const std::string &class_file) {
+bool Detection::load_class_list(const std::string &class_file) {
     class_list.clear();
 
     std::ifstream ifs(class_file);
     if (!ifs.is_open()) {
         std::cerr << "Could not open class names file: " << class_file << std::endl;
-        return;
+        return false;
     }
 
     std::string line;
@@ -32,5 +32,7 @@ void Detection::load_class_list(const std::string &class_file) {
 
     if (class_list.empty()) {
         std::cerr << "Class names file is empty: " << class_file << std::endl;
+        return false;
     }
+    return true;
 }
