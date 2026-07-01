@@ -260,6 +260,11 @@ fallback codecs and may use a new `.avi` fallback filename.
 
 ### Supported Models
 
+The pipeline supports three YOLO output formats, detected from the model
+**filename** (`detectModelFormat`): **YOLO12** (raw grid output), **YOLO26**
+(end-to-end with built-in NMS), and **YOLOE** (open-vocabulary; raw or
+end-to-end depending on the export).
+
 | Model file        | Backend compatibility              | Notes                          |
 |-------------------|-------------------------------     |--------------------------------|
 | `yoloe*.onnx`     | OpenCV DNN, ONNX Runtime, OpenVINO | Open-vocabulary classes baked in during export; raw YOLO output or end-to-end output |
@@ -268,6 +273,24 @@ fallback codecs and may use a new `.avi` fallback filename.
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
 
 > **Note:** YOLOE class labels must match the classes used by `export.py`.
+
+#### Tested with
+
+The pipeline has been run with the following exported models:
+
+| Model                    | Format | Notes                                   |
+|--------------------------|--------|-----------------------------------------|
+| `yolo26m.onnx`           | YOLO26 | End-to-end                              |
+| `yolo26x.onnx`           | YOLO26 | End-to-end, larger variant              |
+| `yoloe-11l-seg.onnx`     | YOLOE  | Open-vocabulary                         |
+| `yoloe-26m-seg.onnx`     | YOLOE  | Open-vocabulary                         |
+| `yoloe-26m-seg-pf.onnx`  | YOLOE  | Prompt-free; covered by the automated inference test |
+| `yoloe-26l-seg-pf.onnx`  | YOLOE  | Prompt-free                             |
+| `yoloe-26x-seg-pf.onnx`  | YOLOE  | Prompt-free, larger variant             |
+| `yoloe-26x-seg.onnx`     | YOLOE  | Open-vocabulary, larger variant         |
+
+The `-seg` models are segmentation exports, but only their bounding boxes are
+used (see Known Limitations). `-pf` denotes the prompt-free YOLOE variant.
 
 ---
 
