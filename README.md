@@ -96,11 +96,17 @@ into the build directory, configure with `-DFETCH_GTEST=ON`.
 
 When ONNX Runtime and local model assets are available, CMake also enables a
 real inference test. It runs `Detection_ORT` on every video found in `tests/`
-(e.g. `tests/*.MOV`) — one parameterized test case per video — and verifies that
-the model draws bounding-box output on at least one frame. The test auto-selects
-`yoloe-11l-seg.onnx` when present, otherwise `yolo26m.onnx`/`yolo26x.onnx`. The
-test videos are not tracked in Git; drop your own into `tests/`. Disable the
-test with `-DENABLE_INFERENCE_TESTS=OFF` or override the inputs with:
+(`tests/*.MOV`, `*.mov`, `*.mp4`) — one parameterized test case per video — and
+verifies that the model draws bounding-box output on at least one frame. The test
+auto-selects `yoloe-11l-seg.onnx` when present, otherwise `yolo26m.onnx`/`yolo26x.onnx`.
+
+> **Note:** The inference tests require you to place one or more test videos in
+> the `tests/` directory (e.g. `tests/my_clip.MOV`). These videos are **not**
+> tracked in Git, so you must add your own. If `tests/` contains no video, CMake
+> skips the inference test (a message says so at configure time); the rest of the
+> build and the unit tests are unaffected.
+
+Disable the test with `-DENABLE_INFERENCE_TESTS=OFF`, or override the inputs with:
 
 ```bash
 cmake .. \
