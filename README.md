@@ -6,7 +6,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 ## Features
 
-- **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime and OpenVINO via a single enum
+- **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime and OpenVINO via `config.yaml` (a detector factory validates the choice against the model format)
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
 - **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine) and XNNPACK (ARM Linux)
 - **YOLO Support**: YOLOE open-vocabulary exports, YOLO v12 raw output and YOLO v26 end-to-end output
@@ -257,28 +257,41 @@ fallback codecs and may use a new `.avi` fallback filename.
 ```
 ObjectDetection/
 ├── CMakeLists.txt
+├── config.example.yaml       # Sample runtime config (copy to config.yaml)
+├── export.py                 # YOLOE ONNX export helper
 ├── coco.txt                  # COCO class names (80 classes)
-├── yoloe_classes.txt         # YOLOE export/runtime classes
 ├── coco.yaml                 # COCO dataset config
+├── yoloe_classes.txt         # YOLOE export/runtime classes
+├── yoloe_pf_classes.txt      # YOLOE prompt-free runtime classes
 ├── include/
 │   ├── Detection.hpp         # Abstract base class
 │   ├── Detection_OpenCV.hpp
 │   ├── Detection_ORT.hpp
 │   ├── Detection_OpenVINO.hpp
+│   ├── DetectorFactory.hpp   # Backend selection + createDetector()
 │   ├── VideoHandler.hpp
+│   ├── FrameCrop.hpp         # Centered-square crop helper
+│   ├── YoloPostprocess.hpp   # Decoders (raw / end-to-end) + drawing
+│   ├── config_loader.hpp     # Config struct + YAML loading + path resolution
 │   ├── Tracker.hpp
 │   ├── Timer.hpp
-│   └── Framework.hpp         # Backend enum
-└── src/
-    ├── main.cpp
-    ├── Detection.cpp
-    ├── Detection_OpenCV.cpp
-    ├── Detection_ORT.cpp
-    ├── VideoHandler.cpp
-    ├── Tracker.cpp
-    ├── Timer.cpp
-    └── openvino/
-        └── Detection_OpenVINO.cpp
+│   ├── Framework.hpp         # Backend / model-format enums + helpers
+│   └── Source.hpp            # Input source enum
+├── src/
+│   ├── main.cpp
+│   ├── Detection.cpp
+│   ├── Detection_OpenCV.cpp
+│   ├── Detection_ORT.cpp
+│   ├── DetectorFactory.cpp
+│   ├── VideoHandler.cpp
+│   ├── Tracker.cpp
+│   ├── Timer.cpp
+│   └── openvino/
+│       └── Detection_OpenVINO.cpp
+└── tests/
+    ├── test_framework.cpp    # Unit tests (format, decoders, config, ...)
+    ├── test_inference.cpp    # Real ONNX inference test over tests/ videos
+    └── *.MOV                 # Local, git-ignored test videos
 ```
 
 ---
@@ -291,6 +304,8 @@ ObjectDetection/
 | `Detection_OpenCV`  | OpenCV DNN backend; CUDA support optional                    |
 | `Detection_ORT`     | ONNX Runtime backend; CoreML (macOS) and XNNPACK (ARM) EP   |
 | `Detection_OpenVINO`| OpenVINO backend *(Intel CPUs only; auto-disabled otherwise)* |
+| `DetectorFactory`   | `createDetector()` builds the configured backend; `supportedBackendsFor()` encodes format↔backend compatibility (free functions) |
+| `YoloPostprocess`   | Header-only decoders (raw / end-to-end + `decodeByFormat` dispatch), NMS and box/label drawing |
 | `VideoHandler`      | Opens video/webcam, crops to square, writes output video     |
 | `Timer`             | High-resolution wall-clock timer using `std::chrono`         |
 | `Tracker`           | **Stub** – thin `track()` wrapper around an OpenCV tracker; not wired into the pipeline (see Known Limitations) |
