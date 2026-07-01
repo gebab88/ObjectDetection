@@ -342,3 +342,113 @@ TEST(DetectorFactory, Yolo26ExcludesOpenCVButKeepsOthers) {
 TEST(DetectorFactory, UnknownFormatHasNoBackends) {
     EXPECT_TRUE(supportedBackendsFor(MODEL_FORMAT::Unknown).empty());
 }
+
+// decodeByFormat: dispatches to the right decoder(s) for each model format.
+
+namespace {
+// End-to-end layout [num_dets=2, fields=6]: x1, y1, x2, y2, score, class id.
+std::vector<float> makeEndToEndOutput() {
+    constexpr int detections = 2;
+    constexpr int fields = 6;
+    std::vector<float> out(detections * fields, 0.0f);
+    out[0 * fields + 0] = 20.0f;  // x1
+    out[0 * fields + 1] = 20.0f;  // y1
+    out[0 * fields + 2] = 70.0f;  // x2
+    out[0 * fields + 3] = 80.0f;  // y2
+    out[0 * fields + 4] = 0.95f;  // score
+    out[0 * fields + 5] = 1.0f;   // class id
+    return out;
+}
+
+// Raw layout, fields-first [fields=7, num_dets=8]: x, y, w, h + 3 class scores.
+std::vector<float> makeRawOutput() {
+    constexpr int fields = 7;
+    constexpr int detections = 8;
+    std::vector<float> out(fields * detections, 0.01f);
+    auto set_value = [&](int field, int det, float value) {
+        out[field * detections + det] = value;
+    };
+    set_value(0, 3, 50.0f);
+    set_value(1, 3, 50.0f);
+    set_value(2, 3, 20.0f);
+    set_value(3, 3, 20.0f);
+    set_value(4, 3, 0.05f);
+    set_value(5, 3, 0.92f);  // class 1 wins
+    set_value(6, 3, 0.10f);
+    return out;
+}
+}  // namespace
+
+TEST(DecodeByFormat, Yolo12UsesRawDecoder) {
+    const std::vector<float> out = makeRawOutput();
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const cv::Mat before = frame.clone();
+    const std::vector<std::string> classes = {"person", "helmet", "forklift"};
+
+    const bool decoded = yolo_postprocess::decodeByFormat(
+        MODEL_FORMAT::YOLO12, out.data(), 7, 8, frame,
+        cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+
+    EXPECT_TRUE(decoded);
+    EXPECT_GT(changedPixelCount(before, frame), 0);
+}
+
+TEST(DecodeByFormat, Yolo26UsesEndToEndDecoder) {
+    const std::vector<float> out = makeEndToEndOutput();
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const cv::Mat before = frame.clone();
+    const std::vector<std::string> classes = {"person", "truck"};
+
+    const bool decoded = yolo_postprocess::decodeByFormat(
+        MODEL_FORMAT::YOLO26, out.data(), 2, 6, frame,
+        cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+
+    EXPECT_TRUE(decoded);
+    EXPECT_GT(changedPixelCount(before, frame), 0);
+}
+
+TEST(DecodeByFormat, Yolo12RejectsEndToEndLayoutWithNoFallback) {
+    // A [2, 6] end-to-end output has too few fields for a raw decode, and YOLO12
+    // has no end-to-end fallback, so nothing is decoded or drawn.
+    const std::vector<float> out = makeEndToEndOutput();
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const cv::Mat before = frame.clone();
+    const std::vector<std::string> classes = {"person", "truck"};
+
+    const bool decoded = yolo_postprocess::decodeByFormat(
+        MODEL_FORMAT::YOLO12, out.data(), 2, 6, frame,
+        cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+
+    EXPECT_FALSE(decoded);
+    EXPECT_EQ(changedPixelCount(before, frame), 0);
+}
+
+TEST(DecodeByFormat, YoloEFallsBackToEndToEnd) {
+    // YOLOE tries raw first; for an end-to-end layout raw fails and the
+    // end-to-end fallback must handle it.
+    const std::vector<float> out = makeEndToEndOutput();
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const cv::Mat before = frame.clone();
+    const std::vector<std::string> classes = {"person", "truck"};
+
+    const bool decoded = yolo_postprocess::decodeByFormat(
+        MODEL_FORMAT::YOLOE, out.data(), 2, 6, frame,
+        cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+
+    EXPECT_TRUE(decoded);
+    EXPECT_GT(changedPixelCount(before, frame), 0);
+}
+
+TEST(DecodeByFormat, UnknownFormatDecodesNothing) {
+    const std::vector<float> out = makeEndToEndOutput();
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const cv::Mat before = frame.clone();
+    const std::vector<std::string> classes = {"person", "truck"};
+
+    const bool decoded = yolo_postprocess::decodeByFormat(
+        MODEL_FORMAT::Unknown, out.data(), 2, 6, frame,
+        cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+
+    EXPECT_FALSE(decoded);
+    EXPECT_EQ(changedPixelCount(before, frame), 0);
+}
