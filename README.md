@@ -290,7 +290,7 @@ ObjectDetection/
 | `Detection`         | Abstract base class; loads class names, holds shared state   |
 | `Detection_OpenCV`  | OpenCV DNN backend; CUDA support optional                    |
 | `Detection_ORT`     | ONNX Runtime backend; CoreML (macOS) and XNNPACK (ARM) EP   |
-| `Detection_OpenVINO`| OpenVINO backend *(macOS only)*                              |
+| `Detection_OpenVINO`| OpenVINO backend *(Intel CPUs only; auto-disabled otherwise)* |
 | `VideoHandler`      | Opens video/webcam, crops to square, writes output video     |
 | `Timer`             | High-resolution wall-clock timer using `std::chrono`         |
 | `Tracker`           | **Stub** – thin `track()` wrapper around an OpenCV tracker; not wired into the pipeline (see Known Limitations) |
