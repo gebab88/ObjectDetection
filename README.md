@@ -95,16 +95,18 @@ Tests are built when GoogleTest is installed. To let CMake download GoogleTest
 into the build directory, configure with `-DFETCH_GTEST=ON`.
 
 When ONNX Runtime and local model assets are available, CMake also enables a
-real inference test. It runs `Detection_ORT` on `test.mov` and verifies that the
-model draws bounding-box output on at least one frame. The test auto-selects
-`yoloe-11l-seg.onnx` when present, otherwise `yolo26m.onnx`/`yolo26x.onnx`.
-Disable it with `-DENABLE_INFERENCE_TESTS=OFF` or override the inputs with:
+real inference test. It runs `Detection_ORT` on every video found in `tests/`
+(e.g. `tests/*.MOV`) — one parameterized test case per video — and verifies that
+the model draws bounding-box output on at least one frame. The test auto-selects
+`yoloe-11l-seg.onnx` when present, otherwise `yolo26m.onnx`/`yolo26x.onnx`. The
+test videos are not tracked in Git; drop your own into `tests/`. Disable the
+test with `-DENABLE_INFERENCE_TESTS=OFF` or override the inputs with:
 
 ```bash
 cmake .. \
   -DINFERENCE_TEST_MODEL=/path/to/model.onnx \
   -DINFERENCE_TEST_CLASSES=/path/to/classes.txt \
-  -DINFERENCE_TEST_VIDEO=/path/to/video.mov
+  -DINFERENCE_TEST_VIDEO=/path/to/video.mov   # single-video override
 ```
 
 ### Test Matrix

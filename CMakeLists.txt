@@ -105,6 +105,7 @@ set(COMMON_SOURCES
     src/Timer.cpp
     src/Detection.cpp
     src/Detection_OpenCV.cpp
+    src/DetectorFactory.cpp
 )
 
 if(ENABLE_YAML_CONFIG)
@@ -260,7 +261,20 @@ elseif(EXISTS "${CMAKE_SOURCE_DIR}/yolo26x.onnx")
 endif()
 set(INFERENCE_TEST_MODEL "${DEFAULT_INFERENCE_TEST_MODEL}" CACHE FILEPATH "ONNX model used by the real inference test")
 set(INFERENCE_TEST_CLASSES "${DEFAULT_INFERENCE_TEST_CLASSES}" CACHE FILEPATH "Class names file used by the real inference test")
-set(INFERENCE_TEST_VIDEO "${CMAKE_SOURCE_DIR}/test.mov" CACHE FILEPATH "Video file used by the real inference test")
+
+# Videos exercised by the real inference test. By default, discover any videos
+# placed in tests/; INFERENCE_TEST_VIDEO can override this with a single file.
+file(GLOB DEFAULT_INFERENCE_TEST_VIDEOS
+    "${CMAKE_SOURCE_DIR}/tests/*.MOV"
+    "${CMAKE_SOURCE_DIR}/tests/*.mov"
+    "${CMAKE_SOURCE_DIR}/tests/*.mp4"
+)
+set(INFERENCE_TEST_VIDEO "" CACHE FILEPATH "Optional single video override for the real inference test")
+if(INFERENCE_TEST_VIDEO)
+    set(INFERENCE_TEST_VIDEOS "${INFERENCE_TEST_VIDEO}")
+else()
+    set(INFERENCE_TEST_VIDEOS "${DEFAULT_INFERENCE_TEST_VIDEOS}")
+endif()
 
 if(BUILD_TESTING)
     find_package(GTest QUIET)
@@ -287,9 +301,11 @@ if(BUILD_TESTING)
                 message(STATUS "Real inference tests disabled: model not found (${INFERENCE_TEST_MODEL}).")
             elseif(NOT EXISTS "${INFERENCE_TEST_CLASSES}")
                 message(STATUS "Real inference tests disabled: class names file not found (${INFERENCE_TEST_CLASSES}).")
-            elseif(NOT EXISTS "${INFERENCE_TEST_VIDEO}")
-                message(STATUS "Real inference tests disabled: video file not found (${INFERENCE_TEST_VIDEO}).")
+            elseif(NOT INFERENCE_TEST_VIDEOS)
+                message(STATUS "Real inference tests disabled: no test video found in tests/.")
             else()
+                # Pass the video list as a single '|'-separated string; the test splits it.
+                string(REPLACE ";" "|" INFERENCE_TEST_VIDEOS_JOINED "${INFERENCE_TEST_VIDEOS}")
                 add_executable(inference_tests_runner
                     tests/test_inference.cpp
                     src/Detection.cpp
@@ -303,7 +319,7 @@ if(BUILD_TESTING)
                     ${PROJECT_COMPILE_DEFINITIONS}
                     INFERENCE_TEST_MODEL_FILE="${INFERENCE_TEST_MODEL}"
                     INFERENCE_TEST_CLASSES_FILE="${INFERENCE_TEST_CLASSES}"
-                    INFERENCE_TEST_VIDEO_FILE="${INFERENCE_TEST_VIDEO}"
+                    INFERENCE_TEST_VIDEOS_FILE="${INFERENCE_TEST_VIDEOS_JOINED}"
                 )
                 target_link_libraries(inference_tests_runner PRIVATE
                     GTest::gtest_main

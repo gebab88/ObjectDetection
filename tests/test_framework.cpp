@@ -4,9 +4,11 @@
 #include "YoloPostprocess.hpp"
 #include "FrameCrop.hpp"
 #include "config_loader.hpp"
+#include "DetectorFactory.hpp"
 
 #include <opencv2/core.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -291,4 +293,33 @@ TEST(ConfigParsing, SourceFromStringFallsBackToVideo) {
     const SOURCE source = sourceFromString("does-not-exist");
     testing::internal::GetCapturedStderr();
     EXPECT_EQ(source, SOURCE::VIDEO);
+}
+
+// supportedBackendsFor: format -> compatible backends (build-independent).
+
+namespace {
+bool backendAllowed(MODEL_FORMAT format, FRAMEWORK framework) {
+    const std::vector<FRAMEWORK> backends = supportedBackendsFor(format);
+    return std::find(backends.begin(), backends.end(), framework) != backends.end();
+}
+}
+
+TEST(DetectorFactory, YoloEAllowsAllBackends) {
+    EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLOE, FRAMEWORK::OpenCV));
+    EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLOE, FRAMEWORK::ONNXRuntime));
+    EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLOE, FRAMEWORK::OpenVINO));
+}
+
+TEST(DetectorFactory, Yolo12AllowsOpenCV) {
+    EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLO12, FRAMEWORK::OpenCV));
+}
+
+TEST(DetectorFactory, Yolo26ExcludesOpenCVButKeepsOthers) {
+    EXPECT_FALSE(backendAllowed(MODEL_FORMAT::YOLO26, FRAMEWORK::OpenCV));
+    EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLO26, FRAMEWORK::ONNXRuntime));
+    EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLO26, FRAMEWORK::OpenVINO));
+}
+
+TEST(DetectorFactory, UnknownFormatHasNoBackends) {
+    EXPECT_TRUE(supportedBackendsFor(MODEL_FORMAT::Unknown).empty());
 }
