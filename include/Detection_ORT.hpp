@@ -34,9 +34,6 @@ class Detection_ORT : public Detection {
     std::string                       input_name_;
     std::vector<std::string>          output_names_;
     std::vector<const char*>          output_name_ptrs_;
-    size_t                            plane_;
-    std::vector<float>                input_;
-    std::vector<cv::Mat>              chans_;
     float                             nms_threshold_;
     Ort::MemoryInfo                   memory_info_;
 };

@@ -15,26 +15,17 @@ Detection_OpenVINO::Detection_OpenVINO( float score_threshold,
     input_ = ov::Tensor(  input_port.get_element_type(),
                                 input_port.get_shape()
                                 );
-    plane_ = static_cast<size_t>(model_shape_.width) * static_cast<size_t>(model_shape_.height);
-    chans_ = std::vector<cv::Mat>(3);
 };
 
 void Detection_OpenVINO::detect( cv::Mat &frame) {
     const int W = static_cast<int>(model_shape_.width);
     const int H = static_cast<int>(model_shape_.height);
 
-    cv::resize(frame, resized_, {W, H});
-
-    // BGR -> RGB, uint8 -> float32, normalise to [0,1]
-    resized_.convertTo(blob_, CV_32F, 1.0 / 255.0);
-    cvtColor(blob_, blob_, cv::COLOR_BGR2RGB);
-
-    // HWC -> CHW: copy each channel plane into the input tensor
-    split(blob_, chans_);
-
-    float* const input_data = input_.data<float>();
-    for (int c = 0; c < 3; ++c)
-        std::memcpy(input_data + c * plane_, chans_[c].ptr<float>(), plane_ * sizeof(float));
+    // Resize, scale to [0,1], swap BGR->RGB and pack into a 1x3xHxW CHW float blob
+    // in a single call, then copy it into the pre-allocated input tensor.
+    cv::dnn::blobFromImage(frame, blob_, 1.0 / 255.0, cv::Size(W, H), cv::Scalar(),
+                           /*swapRB=*/true, /*crop=*/false);
+    std::memcpy(input_.data<float>(), blob_.ptr<float>(), blob_.total() * sizeof(float));
 
     infer_request_.set_input_tensor(input_);
 
@@ -51,34 +42,8 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
     }
 
     const float* const data = output_.data<float>();
-
-    // Pick the decoder from the known model format: raw (NMS-free) for YOLO12,
-    // end-to-end for YOLO26, and raw-then-end-to-end for the YOLOE export, whose
-    // ONNX may be either depending on the --nms export flag.
-    switch (model_format_) {
-        case MODEL_FORMAT::YOLO12:
-            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
-                                            class_list, score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        case MODEL_FORMAT::YOLO26:
-            if (yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
-                                                 class_list, score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        case MODEL_FORMAT::YOLOE:
-            if (yolo_postprocess::decodeRaw(data, shape[1], shape[2], frame, model_shape_,
-                                            class_list, score_threshold_, nms_threshold_) ||
-                yolo_postprocess::decodeEndToEnd(data, shape[1], shape[2], frame, model_shape_,
-                                                 class_list, score_threshold_, nms_threshold_)) {
-                return;
-            }
-            break;
-        default:
-            break;
+    if (!yolo_postprocess::decodeByFormat(model_format_, data, shape[1], shape[2], frame,
+                                          model_shape_, class_list, score_threshold_, nms_threshold_)) {
+        yolo_postprocess::warnUnsupportedShape("OpenVINO", std::vector<int64_t>(shape.begin(), shape.end()));
     }
-
-    yolo_postprocess::warnUnsupportedShape("OpenVINO", std::vector<int64_t>(shape.begin(), shape.end()));
 }
