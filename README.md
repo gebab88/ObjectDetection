@@ -154,13 +154,25 @@ backend:
   framework: "ONNXRuntime"
 ```
 
-The CoreML Execution Provider is configured with `MLProgram` and a local
-`.ort_coreml_cache` directory for compiled CoreML artifacts. By default the
-provider lets CoreML use all available compute units. To force one supported
-CoreML mode for diagnostics, run with `ORT_COREML_COMPUTE_UNITS=CPUAndGPU` or
-`ORT_COREML_COMPUTE_UNITS=CPUAndNeuralEngine`. CoreML decides operator
-placement, so this enables GPU and Apple Neural Engine paths but does not
-guarantee that every model operator runs on the NPU.
+The CoreML Execution Provider uses the `MLProgram` model format and caches the
+compiled CoreML model in a local `.ort_coreml_cache/` directory, so the
+(slow) first-run compilation is reused on later runs.
+
+By default, CoreML is allowed to use **all** compute units — CPU, GPU and the
+Apple Neural Engine (ANE) — and picks where to run each operator itself. You can
+restrict which units it may use via the `ORT_COREML_COMPUTE_UNITS` environment
+variable, mainly for diagnostics:
+
+```bash
+ORT_COREML_COMPUTE_UNITS=CPUAndGPU            ./build/ObjectDetection  # CPU + GPU only
+ORT_COREML_COMPUTE_UNITS=CPUAndNeuralEngine   ./build/ObjectDetection  # CPU + ANE only
+```
+
+> **Note:** This variable sets which compute units CoreML *may* use, not where
+> each operator actually runs. CoreML still decides operator placement, and any
+> operator it cannot map to the GPU/ANE falls back to the CPU. So even
+> `CPUAndNeuralEngine` does not guarantee the whole model runs on the Neural
+> Engine — it only enables that path.
 
 ---
 
