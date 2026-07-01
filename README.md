@@ -356,6 +356,10 @@ ObjectDetection/
 
 ## Known Limitations / TODO
 
+- **Segmentation**: The `-seg` YOLOE models are segmentation exports, but the
+  pipeline is detection-only — it draws bounding boxes and labels and discards
+  the mask coefficients. The decoders (`YoloPostprocess.hpp`) intentionally skip
+  the mask fields. Rendering the instance masks is left as future work.
 - **OpenVINO**: Automatically disabled unless CMake detects an Intel CPU.
 - **Tracker**: `src/Tracker.cpp` is an intentional stub. It exposes a single
   free function, `track(frame, tracker, trackingBox)`, that updates an OpenCV
