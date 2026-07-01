@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -19,8 +21,8 @@
 #define INFERENCE_TEST_CLASSES_FILE ""
 #endif
 
-#ifndef INFERENCE_TEST_VIDEO_FILE
-#define INFERENCE_TEST_VIDEO_FILE ""
+#ifndef INFERENCE_TEST_VIDEOS_FILE
+#define INFERENCE_TEST_VIDEOS_FILE ""
 #endif
 
 namespace {
@@ -39,12 +41,27 @@ int changedPixelCount(const cv::Mat& before, const cv::Mat& after) {
     cv::threshold(gray, mask, 0, 255, cv::THRESH_BINARY);
     return cv::countNonZero(mask);
 }
+
+// The build passes the discovered test videos as a single '|'-separated string.
+std::vector<std::string> inferenceTestVideos() {
+    std::vector<std::string> videos;
+    std::stringstream stream{std::string(INFERENCE_TEST_VIDEOS_FILE)};
+    std::string path;
+    while (std::getline(stream, path, '|')) {
+        if (!path.empty()) {
+            videos.push_back(path);
+        }
+    }
+    return videos;
+}
 }
 
-TEST(RealOnnxInference, DrawsBoundingBoxOnVideoFrame) {
+class RealOnnxInference : public ::testing::TestWithParam<std::string> {};
+
+TEST_P(RealOnnxInference, DrawsBoundingBoxOnVideoFrame) {
     const std::string model_file = INFERENCE_TEST_MODEL_FILE;
     const std::string classes_file = INFERENCE_TEST_CLASSES_FILE;
-    const std::string video_file = INFERENCE_TEST_VIDEO_FILE;
+    const std::string video_file = GetParam();
 
     if (!std::filesystem::exists(model_file)) {
         GTEST_SKIP() << "Inference test model not found: " << model_file;
@@ -87,6 +104,9 @@ TEST(RealOnnxInference, DrawsBoundingBoxOnVideoFrame) {
         }
     }
 
-    FAIL() << "Model inference completed, but no bounding-box output was drawn. "
-           << "Best changed pixel count: " << best_changed_pixels;
+    FAIL() << "Model inference on '" << video_file << "' completed, but no bounding-box output "
+           << "was drawn. Best changed pixel count: " << best_changed_pixels;
 }
+
+INSTANTIATE_TEST_SUITE_P(TestVideos, RealOnnxInference,
+                         ::testing::ValuesIn(inferenceTestVideos()));

@@ -1,31 +1,16 @@
 #include <opencv2/opencv.hpp>
-#include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
-#include <algorithm>
-#include <iostream>
-#include <fstream>
 #include <csignal>
-#include <filesystem>
-#include <list>
+#include <iostream>
 #include <memory>
 
-
 #include "config_loader.hpp"
-
 #include "VideoHandler.hpp"
-#include "Framework.hpp"
 #include "Source.hpp"
 #include "Timer.hpp"
-#include "Detection_OpenCV.hpp"
-
-#ifdef HAVE_ONNX_RUNTIME
-#include "Detection_ORT.hpp"
-#endif
-
-#ifdef HAVE_OPENVINO
-#include "Detection_OpenVINO.hpp"
-#endif
+#include "Detection.hpp"
+#include "DetectorFactory.hpp"
 
 volatile sig_atomic_t keep_running = 1;
 
@@ -46,60 +31,13 @@ int main() {
     Timer timer;
     timer.start();
 
-    const auto model_format = detectModelFormat(cfg.model_file);
-    std::list<FRAMEWORK> supportedBackends;
-
-    if (model_format == MODEL_FORMAT::YOLO12 || model_format == MODEL_FORMAT::YOLOE) {
-        supportedBackends.push_back(FRAMEWORK::OpenCV);
-        #ifdef HAVE_ONNX_RUNTIME
-        supportedBackends.push_back(FRAMEWORK::ONNXRuntime);
-        #endif
-        #ifdef HAVE_OPENVINO
-        supportedBackends.push_back(FRAMEWORK::OpenVINO);
-        #endif
-    } else if (model_format == MODEL_FORMAT::YOLO26) {
-        #ifdef HAVE_ONNX_RUNTIME
-        supportedBackends.push_back(FRAMEWORK::ONNXRuntime);
-        #endif
-        #ifdef HAVE_OPENVINO
-        supportedBackends.push_back(FRAMEWORK::OpenVINO);
-        #endif
-    } else {
-        std::cerr << "Unknown model format. Please check your model file name." << std::endl;
-        return 1;
-    }
-
-    if (std::find(supportedBackends.begin(), supportedBackends.end(), cfg.framework) == supportedBackends.end()) {
-        std::cerr << "Selected backend does not support " << modelFormatName(model_format) << " in this build." << std::endl;
-        return 1;
-    }
-
     VideoHandler video(cfg.video_output_file);
 
     std::unique_ptr<Detection> detection;
     try {
-        if (cfg.framework == FRAMEWORK::OpenCV) {
-            detection = std::make_unique<Detection_OpenCV>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold, cfg.use_cuda);
-        }
-        #ifdef HAVE_ONNX_RUNTIME
-        else if (cfg.framework == FRAMEWORK::ONNXRuntime) {
-            detection = std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
-        }
-        #endif
-
-        #ifdef HAVE_OPENVINO
-        else if (cfg.framework == FRAMEWORK::OpenVINO) {
-            detection = std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
-        }
-        #endif
-
-        else {
-            std::cerr << "Unsupported backend for this platform." << std::endl;
-            return 1;
-        }
+        detection = createDetector(cfg);
     } catch (const std::exception& e) {
-        std::cerr << "Failed to initialise the detection backend (model '" << cfg.model_file
-                  << "'): " << e.what() << std::endl;
+        std::cerr << "Failed to initialise the detection backend: " << e.what() << std::endl;
         return 1;
     }
 

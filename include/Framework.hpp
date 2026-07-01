@@ -42,4 +42,13 @@ inline const char* modelFormatName(const MODEL_FORMAT model_format) {
     return "Unknown";
 }
 
+inline const char* frameworkName(const FRAMEWORK framework) {
+    switch (framework) {
+        case FRAMEWORK::OpenCV:      return "OpenCV";
+        case FRAMEWORK::OpenVINO:    return "OpenVINO";
+        case FRAMEWORK::ONNXRuntime: return "ONNXRuntime";
+    }
+    return "Unknown";
+}
+
 #endif //OPENCV_OBJECT_DETECTION_FRAMEWORK_HPP
