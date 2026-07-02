@@ -430,3 +430,11 @@ ObjectDetection/
 ## License
 
 See [LICENSE](LICENSE) for details.
+
+---
+
+## Disclaimer
+
+This README was generated with the help of artificial intelligence. Its contents
+have not been fully reviewed by a human. **No warranty is given for the accuracy
+or completeness of the information provided.**
