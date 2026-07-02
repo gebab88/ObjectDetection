@@ -421,12 +421,18 @@ ObjectDetection/
 - **OpenCV DNN + yolo26**: Not supported. OpenCV's DNN module cannot load the
   end-to-end YOLO26 graph, so `main()` does not offer the OpenCV backend for
   YOLO26 models. Use the ONNX Runtime or OpenVINO backend instead.
-- **CI coverage of optional backends** *(deferred, YAGNI)*: CI currently builds
-  only the OpenCV-based configurations, so the ONNX Runtime / OpenVINO backends
-  and the real inference test are exercised locally but not in CI. A CI job that
-  installs ONNX Runtime (and OpenVINO on an Intel runner) to run the inference
-  test, plus stricter warnings (`-Wall -Wextra`), is intentionally left as a TODO
-  and will be added when the need arises.
+- **CI coverage of optional backends** *(deferred, YAGNI)*: CI builds only the
+  OpenCV-based configurations. The ONNX Runtime backend expects a local install
+  under `onnxruntime/`, which does not exist on the CI runners, so
+  `src/Detection_ORT.cpp` — the main inference path — is never even **compiled**
+  in CI: a broken include or an API change after an ONNX Runtime update keeps CI
+  green. The real inference test additionally needs model and video assets,
+  which are git-ignored, so a CI job could only restore compile coverage, not
+  test coverage. Such a job would download an ONNX Runtime release into
+  `onnxruntime/` (the CMake search is platform-independent, so a plain x86-64
+  Linux runner works); it is intentionally left unbuilt until the need arises.
+  The same applies to OpenVINO on an Intel runner and to stricter warnings
+  (`-Wall -Wextra`).
 
 ---
 
