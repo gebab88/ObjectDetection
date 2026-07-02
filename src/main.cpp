@@ -84,9 +84,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (!video.set_video_writer()) {
-        return 1;
-    }
     if (!detection->load_class_list(cfg.class_names_file)) {
         std::cerr << "Aborting: no usable class names loaded." << std::endl;
         return 1;
@@ -100,7 +97,11 @@ int main(int argc, char** argv) {
         if (cfg.show_frames) {
             video.showFrame("Object Detector", frame);
         }
-        video.write(frame);
+        // The writer opens on the first frame, sized to the cropped frames.
+        if (!video.write(frame)) {
+            std::cerr << "Aborting: could not open or write the output video." << std::endl;
+            return 1;
+        }
     }
 
     std::cout << "No more frames to read or error occurred." << std::endl;

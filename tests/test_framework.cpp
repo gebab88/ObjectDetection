@@ -5,11 +5,16 @@
 #include "FrameCrop.hpp"
 #include "config_loader.hpp"
 #include "DetectorFactory.hpp"
+#include "VideoHandler.hpp"
 
 #include <opencv2/core.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -18,6 +23,26 @@
 // Tests for detectModelFormat helper
 
 namespace {
+// Scoped capture of a std::ostream (std::cout / std::cerr) via rdbuf
+// redirection. Replaces testing::internal::CaptureStdout/CaptureStderr, which
+// are not part of GTest's public API.
+class StreamCapture {
+public:
+    explicit StreamCapture(std::ostream& stream)
+        : stream_(stream), old_buf_(stream.rdbuf(captured_.rdbuf())) {}
+    ~StreamCapture() { stream_.rdbuf(old_buf_); }
+
+    StreamCapture(const StreamCapture&) = delete;
+    StreamCapture& operator=(const StreamCapture&) = delete;
+
+    std::string str() const { return captured_.str(); }
+
+private:
+    std::ostream& stream_;
+    std::ostringstream captured_;
+    std::streambuf* old_buf_;
+};
+
 // These decode tests assert on the labels printed to stdout, so opt into the
 // detection logging that is disabled by default on the real-time path.
 const bool kDetectionLoggingEnabled = [] {
@@ -114,11 +139,11 @@ TEST(YoloPostprocess, DecodeRawDrawsBoundingBoxAndLabel) {
     const cv::Mat before = frame.clone();
     const std::vector<std::string> classes = {"person", "helmet", "forklift"};
 
-    testing::internal::CaptureStdout();
+    StreamCapture capture(std::cout);
     const bool decoded = yolo_postprocess::decodeRaw(output.data(), fields, detections, frame,
                                                      cv::Size2f(100, 100), classes,
                                                      0.5f, 0.5f);
-    const std::string stdout_text = testing::internal::GetCapturedStdout();
+    const std::string stdout_text = capture.str();
 
     EXPECT_TRUE(decoded);
     EXPECT_GT(changedPixelCount(before, frame), 0);
@@ -142,10 +167,10 @@ TEST(YoloPostprocess, DecodeEndToEndDrawsBoundingBoxAndLabel) {
     const cv::Mat before = frame.clone();
     const std::vector<std::string> classes = {"person", "truck"};
 
-    testing::internal::CaptureStdout();
+    StreamCapture capture(std::cout);
     const bool decoded = yolo_postprocess::decodeEndToEnd(output.data(), detections, fields, frame,
                                                           cv::Size2f(100, 100), classes, 0.5f, 0.5f);
-    const std::string stdout_text = testing::internal::GetCapturedStdout();
+    const std::string stdout_text = capture.str();
 
     EXPECT_TRUE(decoded);
     EXPECT_GT(changedPixelCount(before, frame), 0);
@@ -171,10 +196,10 @@ TEST(YoloPostprocess, DecodeEndToEndIgnoresSegmentationFields) {
     const cv::Mat before = frame.clone();
     const std::vector<std::string> classes = {"person", "truck"};
 
-    testing::internal::CaptureStdout();
+    StreamCapture capture(std::cout);
     const bool decoded = yolo_postprocess::decodeEndToEnd(output.data(), detections, fields, frame,
                                                           cv::Size2f(100, 100), classes, 0.5f, 0.5f);
-    const std::string stdout_text = testing::internal::GetCapturedStdout();
+    const std::string stdout_text = capture.str();
 
     EXPECT_TRUE(decoded);
     EXPECT_GT(changedPixelCount(before, frame), 0);
@@ -204,10 +229,10 @@ TEST(YoloPostprocess, DecodeEndToEndAppliesNmsToOverlappingBoxes) {
     cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
     const std::vector<std::string> classes = {"person", "truck"};
 
-    testing::internal::CaptureStdout();
+    StreamCapture capture(std::cout);
     const bool decoded = yolo_postprocess::decodeEndToEnd(output.data(), detections, fields, frame,
                                                           cv::Size2f(100, 100), classes, 0.5f, 0.5f);
-    const std::string stdout_text = testing::internal::GetCapturedStdout();
+    const std::string stdout_text = capture.str();
 
     EXPECT_TRUE(decoded);
     EXPECT_EQ(countOccurrences(stdout_text, "truck"), 1u);
@@ -277,9 +302,8 @@ TEST(ConfigParsing, FrameworkFromStringKnownValues) {
 }
 
 TEST(ConfigParsing, FrameworkFromStringFallsBackToOpenCV) {
-    testing::internal::CaptureStderr();
+    StreamCapture capture(std::cerr);
     const FRAMEWORK framework = frameworkFromString("does-not-exist");
-    testing::internal::GetCapturedStderr();
     EXPECT_EQ(framework, FRAMEWORK::OpenCV);
 }
 
@@ -289,9 +313,8 @@ TEST(ConfigParsing, SourceFromStringKnownValues) {
 }
 
 TEST(ConfigParsing, SourceFromStringFallsBackToVideo) {
-    testing::internal::CaptureStderr();
+    StreamCapture capture(std::cerr);
     const SOURCE source = sourceFromString("does-not-exist");
-    testing::internal::GetCapturedStderr();
     EXPECT_EQ(source, SOURCE::VIDEO);
 }
 
@@ -439,6 +462,62 @@ TEST(DecodeByFormat, YoloEFallsBackToEndToEnd) {
     EXPECT_GT(changedPixelCount(before, frame), 0);
 }
 
+TEST(DecodeByFormat, YoloEPrefersEndToEndForEndToEndShapedOutput) {
+    // Regression: an end-to-end [300, 6] output together with a 2-entry class
+    // list also satisfies decodeRaw's field check (6 >= 4 + 2), so a raw-first
+    // dispatch misdecodes x1,y1,x2,y2 as cx,cy,w,h. End-to-end-shaped outputs
+    // (few detection rows, 6..128 fields) must go to the end-to-end decoder.
+    constexpr int detections = 300;
+    constexpr int fields = 6;
+    std::vector<float> out(detections * fields, 0.0f);
+    out[0] = 20.0f;  // x1
+    out[1] = 20.0f;  // y1
+    out[2] = 70.0f;  // x2
+    out[3] = 80.0f;  // y2
+    out[4] = 0.95f;  // score
+    out[5] = 1.0f;   // class id
+
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const std::vector<std::string> classes = {"person", "truck"};
+
+    const bool decoded = yolo_postprocess::decodeByFormat(
+        MODEL_FORMAT::YOLOE, out.data(), detections, fields, frame,
+        cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+
+    EXPECT_TRUE(decoded);
+    // Only a correct end-to-end decode draws the box corner at (20, 20).
+    expectYellowPixelNear(frame, 20, 20);
+    expectYellowPixelNear(frame, 70, 80);
+}
+
+TEST(DecodeByFormat, YoloEUsesRawDecoderForRawShapedOutput) {
+    // A realistic raw export has thousands of anchor rows, far above any
+    // end-to-end detection count, and must keep going to the raw decoder.
+    constexpr int fields = 7;  // x, y, w, h + 3 class scores
+    constexpr int detections = 2000;
+    std::vector<float> out(fields * detections, 0.01f);
+    auto set_value = [&](int field, int det, float value) {
+        out[field * detections + det] = value;
+    };
+    set_value(0, 3, 50.0f);
+    set_value(1, 3, 50.0f);
+    set_value(2, 3, 20.0f);
+    set_value(3, 3, 20.0f);
+    set_value(4, 3, 0.05f);
+    set_value(5, 3, 0.92f);  // class 1 wins
+    set_value(6, 3, 0.10f);
+
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const std::vector<std::string> classes = {"person", "helmet", "forklift"};
+
+    const bool decoded = yolo_postprocess::decodeByFormat(
+        MODEL_FORMAT::YOLOE, out.data(), fields, detections, frame,
+        cv::Size2f(100, 100), classes, 0.5f, 0.5f);
+
+    EXPECT_TRUE(decoded);
+    expectYellowPixelNear(frame, 40, 40);
+}
+
 TEST(DecodeByFormat, UnknownFormatDecodesNothing) {
     const std::vector<float> out = makeEndToEndOutput();
     cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
@@ -458,28 +537,196 @@ TEST(DecodeByFormat, UnknownFormatDecodesNothing) {
 
 TEST(WarnUnsupportedShape, WarnsOncePerDistinctMessage) {
     // Repeated identical (backend, shape) warns only the first time.
-    testing::internal::CaptureStderr();
-    yolo_postprocess::warnUnsupportedShape("WarnTestBackendA", {1, 2, 3});
-    const std::string first = testing::internal::GetCapturedStderr();
+    std::string first;
+    {
+        StreamCapture capture(std::cerr);
+        yolo_postprocess::warnUnsupportedShape("WarnTestBackendA", {1, 2, 3});
+        first = capture.str();
+    }
     EXPECT_NE(first.find("WarnTestBackendA"), std::string::npos);
 
-    testing::internal::CaptureStderr();
+    StreamCapture capture(std::cerr);
     yolo_postprocess::warnUnsupportedShape("WarnTestBackendA", {1, 2, 3});
-    EXPECT_TRUE(testing::internal::GetCapturedStderr().empty());
+    EXPECT_TRUE(capture.str().empty());
 }
 
+// VideoHandler: the writer is opened lazily with the size of the frames that
+// are actually written, not the cached capture properties (which can disagree
+// with the decoded frame size for some codecs).
+
+namespace {
+std::string tempOutputPath(const std::string& name) {
+    return (std::filesystem::temp_directory_path() / name).string();
+}
+}  // namespace
+
+TEST(VideoHandlerWriter, OpensWriterWithActualFrameSize) {
+    const std::string output_path = tempOutputPath("objdet_writer_size.avi");
+    std::filesystem::remove(output_path);
+
+    {
+        VideoHandler handler(output_path);
+        handler.fps = 30.0f;
+        cv::Mat frame(64, 64, CV_8UC3, cv::Scalar(0, 128, 255));
+        for (int i = 0; i < 5; ++i) {
+            ASSERT_TRUE(handler.write(frame));
+        }
+    }  // destructor releases the writer
+
+    cv::VideoCapture reader(output_path);
+    ASSERT_TRUE(reader.isOpened()) << "Could not read back " << output_path;
+    cv::Mat read_back;
+    ASSERT_TRUE(reader.read(read_back));
+    EXPECT_EQ(read_back.cols, 64);
+    EXPECT_EQ(read_back.rows, 64);
+    std::filesystem::remove(output_path);
+}
+
+// sanitizedFps: sources that do not report a usable CAP_PROP_FPS (0, negative,
+// or a nonsense 1.0) get a conservative 5 fps fallback so the writer can open.
+
+TEST(VideoHandlerFps, PassesReportedRateThrough) {
+    EXPECT_FLOAT_EQ(VideoHandler::sanitizedFps(29.97), 29.97f);
+    EXPECT_FLOAT_EQ(VideoHandler::sanitizedFps(240.0), 240.0f);
+}
+
+TEST(VideoHandlerFps, FallsBackForUnusableRates) {
+    EXPECT_FLOAT_EQ(VideoHandler::sanitizedFps(0.0), 5.0f);
+    EXPECT_FLOAT_EQ(VideoHandler::sanitizedFps(-1.0), 5.0f);
+    EXPECT_FLOAT_EQ(VideoHandler::sanitizedFps(1.0), 5.0f);
+}
+
+TEST(VideoHandlerWriter, WriteFailsWhenWriterCannotBeOpened) {
+    VideoHandler handler("/nonexistent_dir_objdet/out.avi");
+    handler.fps = 30.0f;
+    cv::Mat frame(64, 64, CV_8UC3, cv::Scalar(0, 0, 0));
+
+    StreamCapture capture(std::cerr);
+    EXPECT_FALSE(handler.write(frame));
+}
+
+// clippedRect: boxes are clamped to the frame but keep their full extent when
+// they touch or overhang the border (cv::Rect's br() is exclusive).
+
+TEST(ClippedRect, KeepsFullExtentAtFrameBorder) {
+    EXPECT_EQ(yolo_postprocess::clippedRect(0.0f, 0.0f, 100.0f, 100.0f, cv::Size(100, 100)),
+              cv::Rect(0, 0, 100, 100));
+}
+
+TEST(ClippedRect, ClampsBoxOverhangingTheBorder) {
+    EXPECT_EQ(yolo_postprocess::clippedRect(-10.0f, -10.0f, 110.0f, 110.0f, cv::Size(100, 100)),
+              cv::Rect(0, 0, 100, 100));
+}
+
+TEST(ClippedRect, ReturnsEmptyForBoxOutsideFrame) {
+    EXPECT_TRUE(yolo_postprocess::clippedRect(120.0f, 10.0f, 150.0f, 30.0f, cv::Size(100, 100)).empty());
+}
+
+// sanitizeConfig: values that would corrupt downstream math (zero model size,
+// thresholds outside [0, 1]) are reset to the built-in defaults.
+
+TEST(ConfigSanitize, ResetsNonPositiveModelShapeToDefault) {
+    Config cfg;
+    cfg.model_shape = cv::Size2f(0.0f, -640.0f);
+
+    StreamCapture capture(std::cerr);
+    sanitizeConfig(cfg);
+
+    const Config defaults;
+    EXPECT_EQ(cfg.model_shape, defaults.model_shape);
+    EXPECT_FALSE(capture.str().empty());
+}
+
+TEST(ConfigSanitize, ResetsOutOfRangeThresholdsToDefaults) {
+    Config cfg;
+    cfg.score_threshold = -0.1f;
+    cfg.nms_threshold = 1.5f;
+
+    StreamCapture capture(std::cerr);
+    sanitizeConfig(cfg);
+
+    const Config defaults;
+    EXPECT_FLOAT_EQ(cfg.score_threshold, defaults.score_threshold);
+    EXPECT_FLOAT_EQ(cfg.nms_threshold, defaults.nms_threshold);
+}
+
+TEST(ConfigSanitize, LeavesValidConfigUntouched) {
+    Config cfg;
+    cfg.score_threshold = 0.7f;
+    cfg.nms_threshold = 0.3f;
+    cfg.model_shape = cv::Size2f(320.0f, 320.0f);
+
+    StreamCapture capture(std::cerr);
+    sanitizeConfig(cfg);
+
+    EXPECT_FLOAT_EQ(cfg.score_threshold, 0.7f);
+    EXPECT_FLOAT_EQ(cfg.nms_threshold, 0.3f);
+    EXPECT_EQ(cfg.model_shape, cv::Size2f(320.0f, 320.0f));
+    EXPECT_TRUE(capture.str().empty());
+}
+
+#ifdef USE_YAML_CONFIG
+// loadConfigYAML: video_output_file lives in the output: section; the legacy
+// input: location keeps working so existing configs do not silently regress.
+
+namespace {
+std::string writeTempConfig(const std::string& name, const std::string& contents) {
+    const auto path = std::filesystem::temp_directory_path() / name;
+    std::ofstream out(path);
+    out << contents;
+    return path.string();
+}
+
+std::string loadedOutputFileName(const std::string& config_path) {
+    const Config cfg = loadConfigYAML(config_path);
+    std::filesystem::remove(config_path);
+    // Relative paths are resolved against the config directory; compare only
+    // the file name.
+    return std::filesystem::path(cfg.video_output_file).filename().string();
+}
+}  // namespace
+
+TEST(ConfigYaml, ReadsVideoOutputFileFromOutputSection) {
+    const std::string path = writeTempConfig(
+        "objdet_test_output_section.yaml",
+        "output:\n  video_output_file: \"from_output.mp4\"\n");
+    EXPECT_EQ(loadedOutputFileName(path), "from_output.mp4");
+}
+
+TEST(ConfigYaml, StillReadsVideoOutputFileFromLegacyInputSection) {
+    const std::string path = writeTempConfig(
+        "objdet_test_legacy_input.yaml",
+        "input:\n  video_output_file: \"legacy.mp4\"\n");
+    EXPECT_EQ(loadedOutputFileName(path), "legacy.mp4");
+}
+
+TEST(ConfigYaml, PrefersOutputSectionOverLegacyInputKey) {
+    const std::string path = writeTempConfig(
+        "objdet_test_output_wins.yaml",
+        "input:\n  video_output_file: \"legacy.mp4\"\n"
+        "output:\n  video_output_file: \"from_output.mp4\"\n");
+    EXPECT_EQ(loadedOutputFileName(path), "from_output.mp4");
+}
+#endif  // USE_YAML_CONFIG
+
 TEST(WarnUnsupportedShape, WarnsAgainForDifferentBackendOrShape) {
-    testing::internal::CaptureStderr();
-    yolo_postprocess::warnUnsupportedShape("WarnTestBackendB", {1, 2, 3});
-    EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    {
+        StreamCapture capture(std::cerr);
+        yolo_postprocess::warnUnsupportedShape("WarnTestBackendB", {1, 2, 3});
+        EXPECT_FALSE(capture.str().empty());
+    }
 
     // Same backend, different shape -> warns again.
-    testing::internal::CaptureStderr();
-    yolo_postprocess::warnUnsupportedShape("WarnTestBackendB", {1, 4, 5});
-    EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    {
+        StreamCapture capture(std::cerr);
+        yolo_postprocess::warnUnsupportedShape("WarnTestBackendB", {1, 4, 5});
+        EXPECT_FALSE(capture.str().empty());
+    }
 
     // Different backend, same shape -> warns again.
-    testing::internal::CaptureStderr();
-    yolo_postprocess::warnUnsupportedShape("WarnTestBackendC", {1, 2, 3});
-    EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    {
+        StreamCapture capture(std::cerr);
+        yolo_postprocess::warnUnsupportedShape("WarnTestBackendC", {1, 2, 3});
+        EXPECT_FALSE(capture.str().empty());
+    }
 }

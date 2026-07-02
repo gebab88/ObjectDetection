@@ -30,7 +30,7 @@ inline MODEL_FORMAT detectModelFormat(const std::string& model_file) {
     if (fname.find("yolo26") != std::string::npos) return MODEL_FORMAT::YOLO26;
     if (fname.find("yoloe") != std::string::npos) return MODEL_FORMAT::YOLOE;
     return MODEL_FORMAT::Unknown;
-};
+}
 
 inline const char* modelFormatName(const MODEL_FORMAT model_format) {
     switch (model_format) {

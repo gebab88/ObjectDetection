@@ -26,6 +26,6 @@ class Detection{
         cv::Mat blob_;
         float score_threshold_;
         cv::Size2f model_shape_;
-        std::vector<std::string> class_list;
+        std::vector<std::string> class_list_;
 };
 #endif // DETECTION_HANDLER_HPP

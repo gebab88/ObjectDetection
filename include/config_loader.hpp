@@ -1,5 +1,5 @@
-#ifndef CONFIG_HPP
-#define CONFIG_HPP
+#ifndef OBJECTDETECTION_CONFIG_LOADER_HPP
+#define OBJECTDETECTION_CONFIG_LOADER_HPP
 
 #include <filesystem>
 #include <string>
@@ -47,7 +47,7 @@ inline FRAMEWORK frameworkFromString(const std::string& s) {
     if (s == "ONNXRuntime") return FRAMEWORK::ONNXRuntime;
     std::cerr << "Unknown framework: " << s << " – falling back to OpenCV." << std::endl;
     return FRAMEWORK::OpenCV;
-};
+}
 
 // ─── Helper: string → SOURCE ──────────────────────────────────────────────
 inline SOURCE sourceFromString(const std::string& s) {
@@ -55,7 +55,34 @@ inline SOURCE sourceFromString(const std::string& s) {
     if (s == "WEBCAM")  return SOURCE::WEBCAM;
     std::cerr << "Unknown source: " << s << " – falling back to VIDEO." << std::endl;
     return SOURCE::VIDEO;
-};
+}
+
+// ─── Helper: reset invalid config values to the built-in defaults ────────────
+// Guards against values that would corrupt downstream math: a non-positive
+// model size becomes a division by zero in the decoders' scale factors, and
+// thresholds outside [0, 1] silently disable detection or NMS.
+inline void sanitizeConfig(Config& cfg) {
+    const Config defaults;
+    if (!(cfg.model_shape.width > 0.0f) || !(cfg.model_shape.height > 0.0f)) {
+        std::cerr << "Invalid model size " << cfg.model_shape.width << "x"
+                  << cfg.model_shape.height << " – using default "
+                  << defaults.model_shape.width << "x" << defaults.model_shape.height
+                  << "." << std::endl;
+        cfg.model_shape = defaults.model_shape;
+    }
+    if (cfg.score_threshold < 0.0f || cfg.score_threshold > 1.0f) {
+        std::cerr << "score_threshold " << cfg.score_threshold
+                  << " outside [0, 1] – using default " << defaults.score_threshold
+                  << "." << std::endl;
+        cfg.score_threshold = defaults.score_threshold;
+    }
+    if (cfg.nms_threshold < 0.0f || cfg.nms_threshold > 1.0f) {
+        std::cerr << "nms_threshold " << cfg.nms_threshold
+                  << " outside [0, 1] – using default " << defaults.nms_threshold
+                  << "." << std::endl;
+        cfg.nms_threshold = defaults.nms_threshold;
+    }
+}
 
 // ─── Helper: resolve a path relative to a base directory ─────────────────────
 // Absolute paths and (for safety) an empty base are returned unchanged, so the
@@ -132,7 +159,11 @@ inline Config loadConfigYAML(const std::string& path) {
                 cfg.source        = sourceFromString(y["input"]["source"].as<std::string>());
             cfg.webcam_index      = y["input"]["webcam_index"].as<int>(cfg.webcam_index);
             cfg.video_input_file  = y["input"]["video_input_file"].as<std::string>(cfg.video_input_file);
+
+            // video_output_file lives in the output: section; the input:
+            // location is still honoured so existing configs keep working.
             cfg.video_output_file = y["input"]["video_output_file"].as<std::string>(cfg.video_output_file);
+            cfg.video_output_file = y["output"]["video_output_file"].as<std::string>(cfg.video_output_file);
 
             cfg.show_frames       = y["display"]["show_frames"].as<bool>(cfg.show_frames);
         } catch (const YAML::Exception& e) {
@@ -140,6 +171,8 @@ inline Config loadConfigYAML(const std::string& path) {
                       << " – falling back to defaults for the remaining fields." << std::endl;
         }
     }
+
+    sanitizeConfig(cfg);
 
     // Resolve relative asset paths against the config file's directory so the
     // program can be started from any working directory (e.g. build/).
@@ -151,4 +184,4 @@ inline Config loadConfigYAML(const std::string& path) {
     return cfg;
 }
 #endif // USE_YAML_CONFIG
-#endif // CONFIG_HPP
+#endif // OBJECTDETECTION_CONFIG_LOADER_HPP

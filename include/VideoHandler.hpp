@@ -4,12 +4,12 @@
 
 class VideoHandler {
     public:
-        float fps;
-        int frame_width;
-        int frame_height;
+        float fps = 0.0f;
 
-        VideoHandler(std::string output_path);
+        explicit VideoHandler(std::string output_path);
         ~VideoHandler();
+
+        static float sanitizedFps(double reported_fps);
 
         void crop_frame( cv::Mat &frame );
         void printVideoProperties();
@@ -17,12 +17,12 @@ class VideoHandler {
         bool open_webcam(const int &camera_index);
         bool read( cv::Mat &frame );
         void showFrame( const std::string &windowName,  const cv::Mat &frame ) ;
-        void write( cv::Mat &frame );
-        bool set_video_writer();
+        bool write( cv::Mat &frame );
 
     private:
+        bool openWriter(const cv::Size &output_size);
+
         std::string output_path_;
-        const int camera_index = 0;
 
         cv::VideoCapture cap_;
         cv::VideoWriter output_;

@@ -112,40 +112,39 @@ if(ENABLE_YAML_CONFIG)
     find_package(yaml-cpp QUIET)
     if(yaml-cpp_FOUND)
         list(APPEND PROJECT_COMPILE_DEFINITIONS USE_YAML_CONFIG)
+        # Shared with tests_runner so the unit tests can cover loadConfigYAML.
+        set(YAML_CPP_LINK_LIBS "")
+        set(YAML_CPP_EXTRA_INCLUDE_DIRS "")
         if(TARGET yaml-cpp::yaml-cpp)
-            list(APPEND PLATFORM_LIBS yaml-cpp::yaml-cpp)
+            set(YAML_CPP_LINK_LIBS yaml-cpp::yaml-cpp)
         else()
-            list(APPEND PLATFORM_LIBS ${YAML_CPP_LIBRARIES})
-            list(APPEND PLATFORM_INCLUDE_DIRS ${YAML_CPP_INCLUDE_DIR})
+            set(YAML_CPP_LINK_LIBS ${YAML_CPP_LIBRARIES})
+            set(YAML_CPP_EXTRA_INCLUDE_DIRS ${YAML_CPP_INCLUDE_DIR})
         endif()
+        list(APPEND PLATFORM_LIBS ${YAML_CPP_LINK_LIBS})
+        list(APPEND PLATFORM_INCLUDE_DIRS ${YAML_CPP_EXTRA_INCLUDE_DIRS})
     else()
         message(WARNING "yaml-cpp not found: building with built-in default config.")
     endif()
 endif()
 
 if(ENABLE_ONNX_RUNTIME)
+    # Search the local install on every platform (macOS, Linux ARM and x86-64
+    # alike); the macOS source-build path simply does not exist elsewhere.
+    find_library(ORT_LIBRARY
+        NAMES onnxruntime
+        PATHS
+            "${ORT_DIR}/build/MacOS/Release"
+            "${ORT_DIR}/lib"
+        NO_DEFAULT_PATH
+    )
+    set(ORT_PROVIDER_INCLUDE_DIRS
+        "${ORT_DIR}/include"
+        "${ORT_DIR}/include/onnxruntime/core/providers/cpu"
+    )
     if(APPLE)
-        find_library(ORT_LIBRARY
-            NAMES onnxruntime
-            PATHS
-                "${ORT_DIR}/build/MacOS/Release"
-                "${ORT_DIR}/lib"
-            NO_DEFAULT_PATH
-        )
-        set(ORT_PROVIDER_INCLUDE_DIRS
-            "${ORT_DIR}/include"
+        list(APPEND ORT_PROVIDER_INCLUDE_DIRS
             "${ORT_DIR}/include/onnxruntime/core/providers/coreml"
-            "${ORT_DIR}/include/onnxruntime/core/providers/cpu"
-        )
-    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64" AND NOT APPLE)
-        find_library(ORT_LIBRARY
-            NAMES onnxruntime
-            PATHS "${ORT_DIR}/lib"
-            NO_DEFAULT_PATH
-        )
-        set(ORT_PROVIDER_INCLUDE_DIRS
-            "${ORT_DIR}/include"
-            "${ORT_DIR}/include/onnxruntime/core/providers/cpu"
         )
     endif()
 
@@ -289,9 +288,17 @@ if(BUILD_TESTING)
     endif()
 
     if(TARGET GTest::gtest_main)
-        add_executable(tests_runner tests/test_framework.cpp)
+        add_executable(tests_runner tests/test_framework.cpp src/VideoHandler.cpp)
         target_include_directories(tests_runner PRIVATE include)
         target_link_libraries(tests_runner PRIVATE GTest::gtest_main ${OpenCV_LIBS})
+        if(yaml-cpp_FOUND)
+            # Enable the loadConfigYAML tests, not just the YAML-free helpers.
+            target_compile_definitions(tests_runner PRIVATE USE_YAML_CONFIG)
+            target_link_libraries(tests_runner PRIVATE ${YAML_CPP_LINK_LIBS})
+            if(YAML_CPP_EXTRA_INCLUDE_DIRS)
+                target_include_directories(tests_runner PRIVATE ${YAML_CPP_EXTRA_INCLUDE_DIRS})
+            endif()
+        endif()
         add_test(NAME framework_tests COMMAND tests_runner)
 
         if(ENABLE_INFERENCE_TESTS)

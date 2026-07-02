@@ -13,60 +13,57 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
 
-    (void)model_file;
+    bool coreml_enabled = false;
+
 #if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
-    const bool use_coreml = true;
-#else
-    const bool use_coreml = false;
+    std::unordered_map<std::string, std::string> coreml_options;
+    coreml_options[kCoremlProviderOption_ModelFormat] = "MLProgram";
+    coreml_options[kCoremlProviderOption_RequireStaticInputShapes] = "1";
+    coreml_options[kCoremlProviderOption_EnableOnSubgraphs] = "0";
+    coreml_options[kCoremlProviderOption_AllowLowPrecisionAccumulationOnGPU] = "1";
+    if (const char* compute_units = std::getenv("ORT_COREML_COMPUTE_UNITS")) {
+        if (*compute_units != '\0') {
+            coreml_options[kCoremlProviderOption_MLComputeUnits] = compute_units;
+        }
+    }
+    const std::string cache_dir = std::filesystem::absolute(".ort_coreml_cache").string();
+    std::filesystem::create_directories(cache_dir);
+    // Persist compiled CoreML artifacts in a project-local cache. We no longer
+    // override the process-wide TMPDIR; the CoreML EP uses the system temp dir
+    // for its intermediate compilation files, which is its normal behaviour.
+    coreml_options[kCoremlProviderOption_ModelCacheDirectory] = cache_dir;
+
+    try {
+        opts.AppendExecutionProvider("CoreML", coreml_options);
+        // CoreML runs the graph, so a single intra-op thread suffices; the
+        // CPU-side settings below stay untouched unless the provider fails.
+        opts.SetIntraOpNumThreads(1);
+        coreml_enabled = true;
+        std::cout << "[Provider] CoreML EP enabled; compute units: "
+                  << (coreml_options.count(kCoremlProviderOption_MLComputeUnits)
+                          ? coreml_options[kCoremlProviderOption_MLComputeUnits]
+                          : "CoreML default/all available units")
+                  << "." << std::endl;
+        std::cout << "[Provider] CoreML model cache: " << cache_dir << std::endl;
+    } catch (const Ort::Exception& e) {
+        std::cerr << "[Warning] CoreML Execution Provider could not be enabled: "
+                  << e.what() << ". Falling back to CPU." << std::endl;
+    }
+#elif defined(__linux__) && defined(__aarch64__)
+    // Linux/ARM: enable XNNPACK, which automatically uses available CPU features.
+    opts.AppendExecutionProvider("XNNPACK");
 #endif
 
-    if (!use_coreml) {
+    if (!coreml_enabled) {
+        // CPU path, including the fallback when CoreML could not be enabled:
+        // use all cores and cache the optimized graph. The cache name derives
+        // from the model so switching models does not make ORT load a stale
+        // optimized graph produced for a different network.
         opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
-        // Derive the cache name from the model so switching models does not make
-        // ORT load a stale optimized graph produced for a different network.
         const std::string optimized_path =
             std::filesystem::path(model_file).filename().string() + ".optimized.onnx";
         opts.SetOptimizedModelFilePath(optimized_path.c_str());
     }
-    
-    #if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
-    if (use_coreml) {
-        opts.SetIntraOpNumThreads(1);
-
-        std::unordered_map<std::string, std::string> coreml_options;
-        coreml_options[kCoremlProviderOption_ModelFormat] = "MLProgram";
-        coreml_options[kCoremlProviderOption_RequireStaticInputShapes] = "1";
-        coreml_options[kCoremlProviderOption_EnableOnSubgraphs] = "0";
-        coreml_options[kCoremlProviderOption_AllowLowPrecisionAccumulationOnGPU] = "1";
-        if (const char* compute_units = std::getenv("ORT_COREML_COMPUTE_UNITS")) {
-            if (*compute_units != '\0') {
-                coreml_options[kCoremlProviderOption_MLComputeUnits] = compute_units;
-            }
-        }
-        const std::string cache_dir = std::filesystem::absolute(".ort_coreml_cache").string();
-        std::filesystem::create_directories(cache_dir);
-        // Persist compiled CoreML artifacts in a project-local cache. We no longer
-        // override the process-wide TMPDIR; the CoreML EP uses the system temp dir
-        // for its intermediate compilation files, which is its normal behaviour.
-        coreml_options[kCoremlProviderOption_ModelCacheDirectory] = cache_dir;
-
-        try {
-            opts.AppendExecutionProvider("CoreML", coreml_options);
-            std::cout << "[Provider] CoreML EP enabled; compute units: "
-                      << (coreml_options.count(kCoremlProviderOption_MLComputeUnits)
-                              ? coreml_options[kCoremlProviderOption_MLComputeUnits]
-                              : "CoreML default/all available units")
-                      << "." << std::endl;
-            std::cout << "[Provider] CoreML model cache: " << cache_dir << std::endl;
-        } catch (const Ort::Exception& e) {
-            std::cerr << "[Warning] CoreML Execution Provider could not be enabled: "
-                      << e.what() << ". Falling back to CPU." << std::endl;
-        }
-    }
-    #elif defined(__linux__) && defined(__aarch64__)
-        // Linux/ARM: enable XNNPACK, which automatically uses available CPU features.
-        opts.AppendExecutionProvider("XNNPACK");
-    #endif
 
     return opts;
 }
@@ -134,7 +131,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
             shape[1] == boxes_shape[1] && boxes_shape[2] == 4) {
 
             const int numDets = static_cast<int>(shape[1]);
-            const int numClasses = static_cast<int>(std::min<int64_t>(shape[2], class_list.size()));
+            const int numClasses = static_cast<int>(std::min<int64_t>(shape[2], class_list_.size()));
             const float* logits = outputs[0].GetTensorData<float>();
             const float* boxes = outputs[1].GetTensorData<float>();
             const cv::Size frame_size(frame.cols, frame.rows);
@@ -174,7 +171,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
                 class_ids.push_back(class_id);
                 detections.push_back(box);
             }
-            yolo_postprocess::drawNmsDetections(frame, detections, class_ids, scores, class_list,
+            yolo_postprocess::drawNmsDetections(frame, detections, class_ids, scores, class_list_,
                                                 score_threshold_, nms_threshold_);
             return;
         }
@@ -191,7 +188,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
 
     const float* const data = outputs[0].GetTensorData<float>();
     if (!yolo_postprocess::decodeByFormat(model_format_, data, shape[1], shape[2], frame,
-                                          model_shape_, class_list, score_threshold_, nms_threshold_)) {
+                                          model_shape_, class_list_, score_threshold_, nms_threshold_)) {
         yolo_postprocess::warnUnsupportedShape("ONNX Runtime", shape);
     }
 }

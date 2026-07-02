@@ -39,10 +39,12 @@ inline float confidence(float value) {
 }
 
 inline cv::Rect clippedRect(float left, float top, float right, float bottom, const cv::Size& frame_size) {
-    const int x1 = std::clamp(static_cast<int>(std::round(left)), 0, frame_size.width - 1);
-    const int y1 = std::clamp(static_cast<int>(std::round(top)), 0, frame_size.height - 1);
-    const int x2 = std::clamp(static_cast<int>(std::round(right)), 0, frame_size.width - 1);
-    const int y2 = std::clamp(static_cast<int>(std::round(bottom)), 0, frame_size.height - 1);
+    // cv::Rect's bottom-right corner is exclusive, so clamp to width/height
+    // (not width-1/height-1) to keep boxes touching the border at full extent.
+    const int x1 = std::clamp(static_cast<int>(std::round(left)), 0, frame_size.width);
+    const int y1 = std::clamp(static_cast<int>(std::round(top)), 0, frame_size.height);
+    const int x2 = std::clamp(static_cast<int>(std::round(right)), 0, frame_size.width);
+    const int y2 = std::clamp(static_cast<int>(std::round(bottom)), 0, frame_size.height);
     if (x2 <= x1 || y2 <= y1) {
         return {};
     }
@@ -168,6 +170,21 @@ inline void drawNmsDetections(cv::Mat& frame,
     }
 }
 
+// Bounds that characterise an end-to-end (built-in NMS) detection output:
+// a few hundred detections (1000 with headroom) of 6..128 fields each. Raw
+// (NMS-free) outputs are far outside these bounds, with thousands of anchor
+// rows (8400 at the default 640x640 input).
+constexpr int64_t kMaxEndToEndDetections = 1000;
+constexpr int64_t kMaxEndToEndFields = 128;
+
+inline bool looksLikeEndToEndOutput(int64_t dim1, int64_t dim2) {
+    const auto plausible = [](int64_t fields, int64_t dets) {
+        return fields >= 6 && fields <= kMaxEndToEndFields &&
+               dets > 0 && dets <= kMaxEndToEndDetections;
+    };
+    return plausible(dim1, dim2) || plausible(dim2, dim1);
+}
+
 inline bool decodeEndToEnd(const float* data,
                            int64_t dim1,
                            int64_t dim2,
@@ -176,18 +193,15 @@ inline bool decodeEndToEnd(const float* data,
                            const std::vector<std::string>& class_list,
                            float score_threshold,
                            float nms_threshold) {
-    constexpr int64_t max_end_to_end_detections = 1000;
-    constexpr int64_t max_end_to_end_fields = 128;
-
     bool fields_first = false;
     int fields = 0;
     int num_dets = 0;
 
     auto plausible_fields = [](int64_t dim) {
-        return dim >= 6 && dim <= max_end_to_end_fields;
+        return dim >= 6 && dim <= kMaxEndToEndFields;
     };
-    const bool dim1_is_fields = plausible_fields(dim1) && dim2 > 0 && dim2 <= max_end_to_end_detections;
-    const bool dim2_is_fields = plausible_fields(dim2) && dim1 > 0 && dim1 <= max_end_to_end_detections;
+    const bool dim1_is_fields = plausible_fields(dim1) && dim2 > 0 && dim2 <= kMaxEndToEndDetections;
+    const bool dim2_is_fields = plausible_fields(dim2) && dim1 > 0 && dim1 <= kMaxEndToEndDetections;
 
     if (dim1_is_fields && (!dim2_is_fields || dim1 <= dim2)) {
         fields_first = true;
@@ -341,6 +355,19 @@ inline bool decodeByFormat(MODEL_FORMAT model_format,
             return decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
                                   score_threshold, nms_threshold);
         case MODEL_FORMAT::YOLOE:
+            // The export may be raw (NMS-free) or end-to-end depending on the
+            // --nms flag. With a tiny class list both decoders accept an
+            // end-to-end [N, 6] output (6 fields >= 4 + class_count), so the
+            // shape decides which decoder goes first: raw outputs carry
+            // thousands of anchor rows, end-to-end ones a few hundred at most.
+            // (Exports at very small input sizes can drop below that bound and
+            // stay ambiguous; the default 640x640 is well clear of it.)
+            if (looksLikeEndToEndOutput(dim1, dim2)) {
+                return decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
+                                      score_threshold, nms_threshold) ||
+                       decodeRaw(data, dim1, dim2, frame, model_shape, class_list,
+                                 score_threshold, nms_threshold);
+            }
             return decodeRaw(data, dim1, dim2, frame, model_shape, class_list,
                              score_threshold, nms_threshold) ||
                    decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,

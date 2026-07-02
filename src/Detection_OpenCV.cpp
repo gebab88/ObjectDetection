@@ -44,7 +44,7 @@ Detection_OpenCV::Detection_OpenCV(const float score_threshold,
     // this backend for YOLO26 (see supportedBackendsFor); in practice only YOLO12
     // and the YOLOE export reach this point.
     if (!yolo_postprocess::decodeByFormat(model_format_, data, dim1, dim2, frame, model_shape_,
-                                          class_list, score_threshold_, nms_threshold_)) {
+                                          class_list_, score_threshold_, nms_threshold_)) {
         yolo_postprocess::warnUnsupportedShape("OpenCV", {1, dim1, dim2});
     }
 }

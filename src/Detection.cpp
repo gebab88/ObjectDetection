@@ -15,7 +15,7 @@ Detection::Detection(
 }
 
 bool Detection::load_class_list(const std::string &class_file) {
-    class_list.clear();
+    class_list_.clear();
 
     std::ifstream ifs(class_file);
     if (!ifs.is_open()) {
@@ -26,11 +26,11 @@ bool Detection::load_class_list(const std::string &class_file) {
     std::string line;
     while ( getline(ifs, line) ) {
         if (!line.empty()) {
-            class_list.push_back(line);
+            class_list_.push_back(line);
         }
     }
 
-    if (class_list.empty()) {
+    if (class_list_.empty()) {
         std::cerr << "Class names file is empty: " << class_file << std::endl;
         return false;
     }

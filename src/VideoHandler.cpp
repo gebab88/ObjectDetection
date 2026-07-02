@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "VideoHandler.hpp"
@@ -73,7 +74,15 @@ std::vector<WriterCandidate> writerCandidates(const std::string& requested_path)
 }
 }
 
-VideoHandler::VideoHandler(const std::string output_path) : output_path_(output_path){
+VideoHandler::VideoHandler(std::string output_path) : output_path_(std::move(output_path)){
+}
+
+float VideoHandler::sanitizedFps(double reported_fps) {
+    // Use the source's reported rate when meaningful; fall back to a
+    // conservative 5 fps for sources that do not report a usable
+    // CAP_PROP_FPS (some containers and webcams report 0). A zero rate
+    // would make every writer candidate fail to open.
+    return (reported_fps > 1.0) ? static_cast<float>(reported_fps) : 5.0f;
 }
 VideoHandler::~VideoHandler(){
         cap_.release();
@@ -90,9 +99,7 @@ bool VideoHandler::open_file(const std::string &input_path) {
         return false;
     }
     std::cout << "Successfully opened video file: " << input_path << std::endl;
-    fps = static_cast<float>(cap_.get(cv::CAP_PROP_FPS));
-    frame_width = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_WIDTH));
-    frame_height = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_HEIGHT));
+    fps = sanitizedFps(cap_.get(cv::CAP_PROP_FPS));
     printVideoProperties();
     return true;
 }
@@ -105,19 +112,11 @@ bool VideoHandler::open_webcam(const int &camera_index) {
         return false;
     }
     std::cout << "Successfully opened webcam with index: " << camera_index << std::endl;
-    // Use the camera's reported rate when available; fall back to a conservative
-    // 5 fps for devices that do not report a meaningful CAP_PROP_FPS.
-    const double reported_fps = cap_.get(cv::CAP_PROP_FPS);
-    fps = (reported_fps > 1.0) ? static_cast<float>(reported_fps) : 5.0f;
-    frame_width = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_WIDTH));
-    frame_height = static_cast<int>(cap_.get(cv::CAP_PROP_FRAME_HEIGHT));
+    fps = sanitizedFps(cap_.get(cv::CAP_PROP_FPS));
     return true;
 }
 
-bool VideoHandler::set_video_writer() {
-    int min_side_len = std::min(frame_height, frame_width);
-    const cv::Size output_size(min_side_len, min_side_len);
-
+bool VideoHandler::openWriter(const cv::Size &output_size) {
     for (const auto& candidate : writerCandidates(output_path_)) {
         if (candidate.path == output_path_ && std::filesystem::exists(candidate.path)) {
             std::filesystem::remove(candidate.path);
@@ -163,8 +162,16 @@ void VideoHandler::showFrame( const std::string &windowName, const cv::Mat &fram
         // cv::destroyAllWindows();  // Close the window after displaying each frame
 }
 
-void VideoHandler::write( cv::Mat &frame ) {
+bool VideoHandler::write( cv::Mat &frame ) {
+    // The writer is opened lazily on the first frame so its size matches the
+    // frames actually written; the cached capture properties can disagree with
+    // the decoded (and cropped) frame size for some codecs, and cv::VideoWriter
+    // silently drops frames whose size differs from the writer's.
+    if (!output_.isOpened() && !openWriter(frame.size())) {
+        return false;
+    }
     output_.write(frame);
+    return true;
 }
 
 bool VideoHandler::read( cv::Mat &frame ) {

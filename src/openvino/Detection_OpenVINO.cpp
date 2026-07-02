@@ -15,7 +15,7 @@ Detection_OpenVINO::Detection_OpenVINO( float score_threshold,
     input_ = ov::Tensor(  input_port.get_element_type(),
                                 input_port.get_shape()
                                 );
-};
+}
 
 void Detection_OpenVINO::detect( cv::Mat &frame) {
     const int W = static_cast<int>(model_shape_.width);
@@ -33,7 +33,10 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
     infer_request_.infer();
 
     output_ = infer_request_.get_output_tensor(0);
-    if (output_.get_size() == 0) { std::cerr << "Empty output tensor!\n"; }
+    if (output_.get_size() == 0) {
+        std::cerr << "Empty output tensor!\n";
+        return;
+    }
 
     ov::Shape shape = output_.get_shape();
     if (shape.size() != 3) {
@@ -43,7 +46,7 @@ void Detection_OpenVINO::detect( cv::Mat &frame) {
 
     const float* const data = output_.data<float>();
     if (!yolo_postprocess::decodeByFormat(model_format_, data, shape[1], shape[2], frame,
-                                          model_shape_, class_list, score_threshold_, nms_threshold_)) {
+                                          model_shape_, class_list_, score_threshold_, nms_threshold_)) {
         yolo_postprocess::warnUnsupportedShape("OpenVINO", std::vector<int64_t>(shape.begin(), shape.end()));
     }
 }

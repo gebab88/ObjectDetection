@@ -252,6 +252,8 @@ input:
   source: "VIDEO"            # WEBCAM | VIDEO
   webcam_index: 0
   video_input_file: "tests/test_mov1.MOV"
+
+output:
   video_output_file: "output.mp4"
 
 display:
@@ -301,7 +303,8 @@ Command-line options:
 against the config file's directory, so the program can be started from any
 working directory (e.g. `build/`). Absolute paths are used as-is.
 
-The processed video is saved to `input.video_output_file` from `config.yaml`.
+The processed video is saved to `output.video_output_file` from `config.yaml`
+(the legacy `input.video_output_file` location is still honoured).
 If the requested container/codec cannot be opened, the writer tries compatible
 fallback codecs and may use a new `.avi` fallback filename.
 
