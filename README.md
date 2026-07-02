@@ -53,6 +53,14 @@ sudo apt install libopencv-dev
 
 ### ONNX Runtime
 
+You can either use the **prebuilt binaries** or **build ONNX Runtime from source**.
+Either way, CMake discovers it through `ORT_DIR` (default: `onnxruntime/` in the
+project root; override with `-DORT_DIR=/path/to/onnxruntime`). It expects the
+headers under `<ORT_DIR>/include` and the shared library under
+`<ORT_DIR>/build/MacOS/Release` (macOS) or `<ORT_DIR>/lib` (macOS and Linux/ARM).
+
+#### Option A — prebuilt binaries
+
 Download the prebuilt binaries for your platform from the [official releases](https://github.com/microsoft/onnxruntime/releases) and place them in `onnxruntime/` inside the project root:
 
 ```
@@ -68,6 +76,45 @@ ObjectDetection/
     └── lib/
         └── libonnxruntime.so               # Linux / ARM
 ```
+
+#### Option B — build from source
+
+Clone and build the shared library (see the upstream [build instructions](https://onnxruntime.ai/docs/build/) for all options):
+
+```bash
+git clone --recursive https://github.com/microsoft/onnxruntime
+cd onnxruntime
+# Linux / ARM:
+./build.sh --config Release --build_shared_lib --parallel --skip_tests
+# macOS (adds the CoreML execution provider):
+./build.sh --config Release --build_shared_lib --parallel --skip_tests --use_coreml
+```
+
+A source checkout already ships the public headers under
+`include/onnxruntime/core/...`, and the build writes the shared library to
+`build/<Platform>/Release/`. Make both discoverable in one of two ways:
+
+- **Point `ORT_DIR` at the source checkout** (simplest on macOS, whose expected
+  layout matches the source tree 1:1):
+  ```bash
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DORT_DIR=/path/to/onnxruntime
+  ```
+  On macOS this finds `build/MacOS/Release/libonnxruntime.dylib` and the headers
+  directly. On **Linux/ARM** the library lands in `build/Linux/Release/`, which is
+  *not* searched — symlink it into `<ORT_DIR>/lib/` first (see the next option).
+
+- **Assemble the documented `onnxruntime/` layout** by symlinking (or copying) the
+  source artifacts into place. From the project root, with `SRC` pointing at your
+  ONNX Runtime source checkout:
+  ```bash
+  mkdir -p onnxruntime/include onnxruntime/lib
+  ln -s "$SRC/include/onnxruntime" onnxruntime/include/onnxruntime
+  # macOS:
+  ln -s "$SRC/build/MacOS/Release/libonnxruntime.dylib" onnxruntime/lib/
+  # Linux / ARM:
+  ln -s "$SRC/build/Linux/Release/libonnxruntime.so"    onnxruntime/lib/
+  ```
+  Then configure as usual (the default `ORT_DIR` already points at `onnxruntime/`).
 
 ### OpenVINO (Intel only)
 
