@@ -1,5 +1,6 @@
 CLAUDE.md
 *.onnx
+*.hef
 *.pt
 venv
 compile_commands.json
@@ -21,10 +22,13 @@ src/.DS_Store
 .idea/
 *.mp4
 *.mov
+previews/
 *.ninja*
 *.yaml
 # Keep the documented, version-controlled sample config
 !config.example.yaml
+# Local backup files (e.g. config.yaml.bak)
+*.bak
 *.json
 .ort_coreml_cache/
 # TorchScript / large model artifacts (e.g. mobileclip*.ts)
