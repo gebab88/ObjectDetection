@@ -16,6 +16,10 @@
 #include "Detection_OpenVINO.hpp"
 #endif
 
+#ifdef HAVE_HAILO
+#include "Detection_Hailo.hpp"
+#endif
+
 std::unique_ptr<Detection> createDetector(const Config& cfg) {
     const MODEL_FORMAT format = detectModelFormat(cfg.model_file);
 
@@ -44,6 +48,13 @@ std::unique_ptr<Detection> createDetector(const Config& cfg) {
 #ifdef HAVE_OPENVINO
             return std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape,
                                                         cfg.model_file, cfg.nms_threshold);
+#else
+            break;
+#endif
+        case FRAMEWORK::Hailo:
+#ifdef HAVE_HAILO
+            return std::make_unique<Detection_Hailo>(cfg.score_threshold, cfg.nms_threshold,
+                                                     cfg.model_shape, cfg.model_file);
 #else
             break;
 #endif

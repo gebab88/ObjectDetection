@@ -80,6 +80,7 @@ elseif(NOT ENABLE_OPENVINO AND NOT HAS_INTEL_CPU)
     message(STATUS "OpenVINO disabled by default: no Intel CPU detected.")
 endif()
 option(ENABLE_YAML_CONFIG "Load runtime config from config.yaml when yaml-cpp is available" ON)
+option(ENABLE_HAILO "Build Hailo backend when HailoRT and ONNX Runtime are available" ON)
 option(FETCH_GTEST "Download GoogleTest into the build directory when it is not installed" OFF)
 option(ENABLE_INFERENCE_TESTS "Build real ONNX inference tests when local model assets are available" ON)
 
@@ -199,6 +200,32 @@ if(ENABLE_OPENVINO)
         message(STATUS "OpenVINO backend enabled (OpenVINO_DIR=${OpenVINO_DIR})")
     else()
         message(WARNING "OpenVINO requested on Intel CPU, but package was not found: backend disabled.")
+    endif()
+endif()
+
+if(ENABLE_HAILO AND UNIX AND NOT APPLE)
+    find_library(HAILORT_LIBRARY
+        NAMES hailort
+        PATHS /usr/lib /usr/local/lib
+    )
+    find_path(HAILORT_INCLUDE_DIR
+        NAMES hailo/hailort.hpp
+        PATHS /usr/include /usr/local/include
+    )
+
+    if(HAILORT_LIBRARY
+       AND HAILORT_INCLUDE_DIR
+       AND ORT_LIBRARY
+       AND ORT_SESSION_INCLUDE_DIR)
+        list(APPEND PLATFORM_SOURCES src/Detection_Hailo.cpp)
+        list(APPEND PLATFORM_LIBS "${HAILORT_LIBRARY}")
+        list(APPEND PLATFORM_INCLUDE_DIRS "${HAILORT_INCLUDE_DIR}")
+        list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_HAILO)
+        message(STATUS "Hailo backend enabled: ${HAILORT_LIBRARY}")
+    elseif(HAILORT_LIBRARY OR HAILORT_INCLUDE_DIR)
+        message(WARNING "HailoRT found, but ONNX Runtime is unavailable: Hailo backend disabled.")
+    else()
+        message(STATUS "Hailo backend disabled: HailoRT not found.")
     endif()
 endif()
 

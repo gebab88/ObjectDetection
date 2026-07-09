@@ -8,13 +8,15 @@
 
 enum class FRAMEWORK {  OpenCV,
                         OpenVINO,
-                        ONNXRuntime
+                        ONNXRuntime,
+                        Hailo
 };
 
 enum class MODEL_FORMAT {
     YOLO12,   // classic YOLO layout:  [batch, fields, detections]
     YOLO26,   // end-to-end layout:    [batch, detections, 6]
     YOLOE,    // open-vocabulary YOLOE export; prompts/classes are baked in
+    HEF,      // Hailo Executable Format
     Unknown
 };
 
@@ -23,9 +25,14 @@ enum class MODEL_FORMAT {
 // yolo12s, yolo12n.onnx, yolo26m_v2.onnx, yoloe-26m-seg-pf.onnx.
 inline MODEL_FORMAT detectModelFormat(const std::string& model_file) {
     std::string fname = std::filesystem::path(model_file).filename().string();
+    std::string ext = std::filesystem::path(model_file).extension().string();
     std::transform(fname.begin(), fname.end(), fname.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (ext == ".hef") return MODEL_FORMAT::HEF;
     if (fname.find("yolo12") != std::string::npos) return MODEL_FORMAT::YOLO12;
     if (fname.find("yolo26") != std::string::npos) return MODEL_FORMAT::YOLO26;
     if (fname.find("yoloe") != std::string::npos) return MODEL_FORMAT::YOLOE;
@@ -37,6 +44,7 @@ inline const char* modelFormatName(const MODEL_FORMAT model_format) {
         case MODEL_FORMAT::YOLO12: return "YOLO12";
         case MODEL_FORMAT::YOLO26: return "YOLO26";
         case MODEL_FORMAT::YOLOE: return "YOLOE";
+        case MODEL_FORMAT::HEF: return "HEF";
         case MODEL_FORMAT::Unknown: return "Unknown";
     }
     return "Unknown";
@@ -47,6 +55,7 @@ inline const char* frameworkName(const FRAMEWORK framework) {
         case FRAMEWORK::OpenCV:      return "OpenCV";
         case FRAMEWORK::OpenVINO:    return "OpenVINO";
         case FRAMEWORK::ONNXRuntime: return "ONNXRuntime";
+        case FRAMEWORK::Hailo:       return "Hailo";
     }
     return "Unknown";
 }

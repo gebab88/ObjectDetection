@@ -25,6 +25,8 @@ struct Config {
     FRAMEWORK    framework        = FRAMEWORK::ONNXRuntime;
 #elif defined(HAVE_OPENVINO)
     FRAMEWORK    framework        = FRAMEWORK::OpenVINO;
+#elif defined(HAVE_HAILO)
+    FRAMEWORK    framework        = FRAMEWORK::Hailo;
 #else
     FRAMEWORK    framework        = FRAMEWORK::OpenCV;
 #endif
@@ -45,6 +47,7 @@ inline FRAMEWORK frameworkFromString(const std::string& s) {
     if (s == "OpenCV")      return FRAMEWORK::OpenCV;
     if (s == "OpenVINO")    return FRAMEWORK::OpenVINO;
     if (s == "ONNXRuntime") return FRAMEWORK::ONNXRuntime;
+    if (s == "Hailo")       return FRAMEWORK::Hailo;
     std::cerr << "Unknown framework: " << s << " – falling back to OpenCV." << std::endl;
     return FRAMEWORK::OpenCV;
 }
