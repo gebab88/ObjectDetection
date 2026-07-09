@@ -1,15 +1,15 @@
 # ObjectDetection
 
-Real-time object detection pipeline for video files and webcams, based on YOLO models. Supports three inference backends: **OpenCV DNN**, **ONNX Runtime**, and **OpenVINO** – with optional hardware acceleration via CoreML (macOS) and XNNPACK (ARM/Linux).
+Real-time object detection pipeline for video files and webcams, based on YOLO models. Supports four inference backends: **OpenCV DNN**, **ONNX Runtime**, **OpenVINO**, and **Hailo** – with optional hardware acceleration via CoreML (macOS), XNNPACK (ARM/Linux), and HAILO10H HEF models.
 
 ---
 
 ## Features
 
-- **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime and OpenVINO via `config.yaml` (a detector factory validates the choice against the model format)
+- **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime, OpenVINO and Hailo via `config.yaml` (a detector factory validates the choice against the model format)
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
-- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine) and XNNPACK (ARM Linux)
-- **YOLO Support**: YOLOE open-vocabulary exports, YOLO v12 raw output and YOLO v26 end-to-end output
+- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux) and HailoRT
+- **YOLO / HEF Support**: YOLOE open-vocabulary exports, YOLO v12 raw output, YOLO v26 end-to-end output and Hailo HEF models
 - **Video Output**: Processed frames with bounding boxes are written to the configured output file
 - **Performance Timing**: Built-in high-resolution timer for total execution time
 
@@ -17,12 +17,12 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 ## Supported Platforms
 
-| Platform              | OpenCV DNN | ONNX Runtime | OpenVINO |
-|-----------------------|:----------:|:------------:|:--------:|
-| macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled |
-| macOS (Intel)         | ✅          | ✅            | ✅ when installed |
-| Linux (Intel x86_64)  | ✅          | ✅            | ✅ when installed |
-| Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled |
+| Platform              | OpenCV DNN | ONNX Runtime | OpenVINO | Hailo |
+|-----------------------|:----------:|:------------:|:--------:|:-----:|
+| macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled | ❌ |
+| macOS (Intel)         | ✅          | ✅            | ✅ when installed | ❌ |
+| Linux (Intel x86_64)  | ✅          | ✅            | ✅ when installed | ❌ |
+| Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled | ✅ when installed |
 
 ---
 
@@ -33,6 +33,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **OpenCV** ≥ 4.x (with `opencv_dnn`, `opencv_tracking`)
 - **ONNX Runtime** *(optional, required for the ONNX Runtime backend)*
 - **OpenVINO** 2025.x *(optional, enabled by CMake only when an Intel CPU is detected)*
+- **HailoRT** *(optional, Linux/aarch64 only, required for `.hef` models)*
 
 ### Install OpenCV (macOS)
 
@@ -245,7 +246,7 @@ model:
   model_height: 640
 
 backend:
-  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime
+  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime | Hailo
   use_cuda: false
 
 input:
@@ -310,10 +311,11 @@ fallback codecs and may use a new `.avi` fallback filename.
 
 ### Supported Models
 
-The pipeline supports three YOLO output formats, detected from the model
+The pipeline supports three YOLO output formats plus Hailo HEFs, detected from the model
 **filename** (`detectModelFormat`): **YOLO12** (raw grid output), **YOLO26**
 (end-to-end with built-in NMS), and **YOLOE** (open-vocabulary; raw or
-end-to-end depending on the export).
+end-to-end depending on the export). Files ending in `.hef` use the **HEF**
+format and require the Hailo backend.
 
 | Model file        | Backend compatibility              | Notes                          |
 |-------------------|-------------------------------     |--------------------------------|
@@ -321,6 +323,7 @@ end-to-end depending on the export).
 | `yolo12m.onnx`    | OpenCV DNN, ONNX Runtime, OpenVINO | Standard YOLO output (NMS required) |
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
+| `*.hef`           | Hailo                               | HailoRT model; raw YOLO26 HEFs require `yolo26m_postprocess.onnx` |
 
 > **Note:** YOLOE class labels must match the classes used by `export.py`.
 
@@ -338,6 +341,8 @@ The pipeline has been run with the following exported models:
 | `yoloe-26l-seg-pf.onnx`  | YOLOE  | Prompt-free                             |
 | `yoloe-26x-seg-pf.onnx`  | YOLOE  | Prompt-free, larger variant             |
 | `yoloe-26x-seg.onnx`     | YOLOE  | Open-vocabulary, larger variant         |
+| `nanodet_repvgg_a12_hailo10h.hef` | HEF | HailoRT backend |
+| `yolo26m_hailo10h.hef`   | HEF    | Raw Hailo outputs with ONNX postprocess |
 
 The `-seg` models are segmentation exports, but only their bounding boxes are
 used (see Known Limitations). `-pf` denotes the prompt-free YOLOE variant.
@@ -360,6 +365,7 @@ ObjectDetection/
 │   ├── Detection_OpenCV.hpp
 │   ├── Detection_ORT.hpp
 │   ├── Detection_OpenVINO.hpp
+│   ├── Detection_Hailo.hpp
 │   ├── DetectorFactory.hpp   # Backend selection + createDetector()
 │   ├── VideoHandler.hpp
 │   ├── FrameCrop.hpp         # Centered-square crop helper
@@ -374,6 +380,7 @@ ObjectDetection/
 │   ├── Detection.cpp
 │   ├── Detection_OpenCV.cpp
 │   ├── Detection_ORT.cpp
+│   ├── Detection_Hailo.cpp
 │   ├── DetectorFactory.cpp
 │   ├── VideoHandler.cpp
 │   ├── Tracker.cpp
@@ -396,6 +403,7 @@ ObjectDetection/
 | `Detection_OpenCV`  | OpenCV DNN backend; CUDA support optional                    |
 | `Detection_ORT`     | ONNX Runtime backend; CoreML (macOS) and XNNPACK (ARM) EP   |
 | `Detection_OpenVINO`| OpenVINO backend *(Intel CPUs only; auto-disabled otherwise)* |
+| `Detection_Hailo`   | HailoRT backend for `.hef` models                           |
 | `DetectorFactory`   | `createDetector()` builds the configured backend; `supportedBackendsFor()` encodes format↔backend compatibility (free functions) |
 | `YoloPostprocess`   | Header-only decoders (raw / end-to-end + `decodeByFormat` dispatch), NMS and box/label drawing |
 | `VideoHandler`      | Opens video/webcam, crops to square, writes output video     |
@@ -421,6 +429,8 @@ ObjectDetection/
 - **OpenCV DNN + yolo26**: Not supported. OpenCV's DNN module cannot load the
   end-to-end YOLO26 graph, so `main()` does not offer the OpenCV backend for
   YOLO26 models. Use the ONNX Runtime or OpenVINO backend instead.
+- **Raw Hailo YOLO26**: The raw-output postprocess path currently targets
+  YOLO26m and expects `yolo26m_postprocess.onnx` in the project root.
 - **CI coverage of optional backends** *(deferred, YAGNI)*: CI builds only the
   OpenCV-based configurations. The ONNX Runtime backend expects a local install
   under `onnxruntime/`, which does not exist on the CI runners, so
