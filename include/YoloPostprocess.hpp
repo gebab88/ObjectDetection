@@ -372,6 +372,9 @@ inline bool decodeByFormat(MODEL_FORMAT model_format,
                              score_threshold, nms_threshold) ||
                    decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
                                   score_threshold, nms_threshold);
+#ifdef HAVE_HAILO
+        case MODEL_FORMAT::HEF:  // Decoded directly by Detection_Hailo.
+#endif
         case MODEL_FORMAT::Unknown:
             return false;
     }

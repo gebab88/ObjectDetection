@@ -80,7 +80,31 @@ elseif(NOT ENABLE_OPENVINO AND NOT HAS_INTEL_CPU)
     message(STATUS "OpenVINO disabled by default: no Intel CPU detected.")
 endif()
 option(ENABLE_YAML_CONFIG "Load runtime config from config.yaml when yaml-cpp is available" ON)
-option(ENABLE_HAILO "Build Hailo backend when HailoRT and ONNX Runtime are available" ON)
+# Hailo is supported only on a Raspberry Pi running 64-bit Linux. Do not
+# inspect the build host's device tree when cross-compiling for another target.
+set(DEFAULT_TARGET_RASPBERRY_PI OFF)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$"
+   AND NOT CMAKE_CROSSCOMPILING)
+    foreach(MODEL_PATH /proc/device-tree/model /sys/firmware/devicetree/base/model)
+        if(EXISTS "${MODEL_PATH}")
+            file(STRINGS "${MODEL_PATH}" DEVICE_MODEL LIMIT_COUNT 1)
+            if(DEVICE_MODEL MATCHES "^Raspberry Pi")
+                set(DEFAULT_TARGET_RASPBERRY_PI ON)
+                break()
+            endif()
+        endif()
+    endforeach()
+endif()
+option(TARGET_RASPBERRY_PI "Target a Raspberry Pi (set explicitly when cross-compiling)" ${DEFAULT_TARGET_RASPBERRY_PI})
+option(ENABLE_HAILO "Build Raspberry Pi Hailo backend when HailoRT and ONNX Runtime are available" ${TARGET_RASPBERRY_PI})
+if(NOT TARGET_RASPBERRY_PI
+   OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(ENABLE_HAILO OFF CACHE BOOL "Build Raspberry Pi Hailo backend when HailoRT and ONNX Runtime are available" FORCE)
+    message(STATUS "Hailo backend disabled: target is not a Raspberry Pi with 64-bit Linux.")
+endif()
+set(HAILO_BACKEND_ENABLED OFF)
 option(FETCH_GTEST "Download GoogleTest into the build directory when it is not installed" OFF)
 option(ENABLE_INFERENCE_TESTS "Build real ONNX inference tests when local model assets are available" ON)
 
@@ -203,7 +227,7 @@ if(ENABLE_OPENVINO)
     endif()
 endif()
 
-if(ENABLE_HAILO AND UNIX AND NOT APPLE)
+if(ENABLE_HAILO)
     find_library(HAILORT_LIBRARY
         NAMES hailort
         PATHS /usr/lib /usr/local/lib
@@ -215,12 +239,12 @@ if(ENABLE_HAILO AND UNIX AND NOT APPLE)
 
     if(HAILORT_LIBRARY
        AND HAILORT_INCLUDE_DIR
-       AND ORT_LIBRARY
-       AND ORT_SESSION_INCLUDE_DIR)
+       AND ONNX_RUNTIME_BACKEND_ENABLED)
         list(APPEND PLATFORM_SOURCES src/Detection_Hailo.cpp)
         list(APPEND PLATFORM_LIBS "${HAILORT_LIBRARY}")
         list(APPEND PLATFORM_INCLUDE_DIRS "${HAILORT_INCLUDE_DIR}")
         list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_HAILO)
+        set(HAILO_BACKEND_ENABLED ON)
         message(STATUS "Hailo backend enabled: ${HAILORT_LIBRARY}")
     elseif(HAILORT_LIBRARY OR HAILORT_INCLUDE_DIR)
         message(WARNING "HailoRT found, but ONNX Runtime is unavailable: Hailo backend disabled.")
@@ -318,6 +342,9 @@ if(BUILD_TESTING)
         add_executable(tests_runner tests/test_framework.cpp src/VideoHandler.cpp)
         target_include_directories(tests_runner PRIVATE include)
         target_link_libraries(tests_runner PRIVATE GTest::gtest_main ${OpenCV_LIBS})
+        if(HAILO_BACKEND_ENABLED)
+            target_compile_definitions(tests_runner PRIVATE HAVE_HAILO)
+        endif()
         if(yaml-cpp_FOUND)
             # Enable the loadConfigYAML tests, not just the YAML-free helpers.
             target_compile_definitions(tests_runner PRIVATE USE_YAML_CONFIG)

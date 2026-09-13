@@ -86,6 +86,19 @@ size_t countOccurrences(const std::string& text, const std::string& needle) {
 }
 }
 
+TEST(DetectModelFormat, HefRequiresCompiledHailoBackend) {
+    for (const auto* filename : {"nanodet.hef", "yolo26m.HEF", "yoloe.hef", "yolo12m.hef"}) {
+#ifdef HAVE_HAILO
+        EXPECT_EQ(detectModelFormat(filename), MODEL_FORMAT::HEF);
+        EXPECT_EQ(supportedBackendsFor(detectModelFormat(filename)),
+                  std::vector<FRAMEWORK>{FRAMEWORK::Hailo});
+#else
+        EXPECT_EQ(detectModelFormat(filename), MODEL_FORMAT::Unknown);
+        EXPECT_TRUE(supportedBackendsFor(detectModelFormat(filename)).empty());
+#endif
+    }
+}
+
 TEST(DetectModelFormat, ReturnsYOLO12ForYolo12m) {
     EXPECT_EQ(detectModelFormat("/path/to/yolo12m.onnx"), MODEL_FORMAT::YOLO12);
 }

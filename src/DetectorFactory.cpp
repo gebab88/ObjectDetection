@@ -51,12 +51,10 @@ std::unique_ptr<Detection> createDetector(const Config& cfg) {
 #else
             break;
 #endif
-        case FRAMEWORK::Hailo:
 #ifdef HAVE_HAILO
+        case FRAMEWORK::Hailo:
             return std::make_unique<Detection_Hailo>(cfg.score_threshold, cfg.nms_threshold,
                                                      cfg.model_shape, cfg.model_file);
-#else
-            break;
 #endif
     }
 

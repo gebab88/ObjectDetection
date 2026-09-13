@@ -47,7 +47,9 @@ inline FRAMEWORK frameworkFromString(const std::string& s) {
     if (s == "OpenCV")      return FRAMEWORK::OpenCV;
     if (s == "OpenVINO")    return FRAMEWORK::OpenVINO;
     if (s == "ONNXRuntime") return FRAMEWORK::ONNXRuntime;
+#ifdef HAVE_HAILO
     if (s == "Hailo")       return FRAMEWORK::Hailo;
+#endif
     std::cerr << "Unknown framework: " << s << " – falling back to OpenCV." << std::endl;
     return FRAMEWORK::OpenCV;
 }

@@ -9,14 +9,18 @@
 enum class FRAMEWORK {  OpenCV,
                         OpenVINO,
                         ONNXRuntime,
+#ifdef HAVE_HAILO
                         Hailo
+#endif
 };
 
 enum class MODEL_FORMAT {
     YOLO12,   // classic YOLO layout:  [batch, fields, detections]
     YOLO26,   // end-to-end layout:    [batch, detections, 6]
     YOLOE,    // open-vocabulary YOLOE export; prompts/classes are baked in
-    HEF,      // Hailo Executable Format
+#ifdef HAVE_HAILO
+    HEF,      // Hailo Executable Format (Raspberry Pi backend)
+#endif
     Unknown
 };
 
@@ -32,7 +36,14 @@ inline MODEL_FORMAT detectModelFormat(const std::string& model_file) {
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
-    if (ext == ".hef") return MODEL_FORMAT::HEF;
+    if (ext == ".hef") {
+#ifdef HAVE_HAILO
+        return MODEL_FORMAT::HEF;
+#else
+        // A YOLO-named HEF must not fall through to an ONNX decoder.
+        return MODEL_FORMAT::Unknown;
+#endif
+    }
     if (fname.find("yolo12") != std::string::npos) return MODEL_FORMAT::YOLO12;
     if (fname.find("yolo26") != std::string::npos) return MODEL_FORMAT::YOLO26;
     if (fname.find("yoloe") != std::string::npos) return MODEL_FORMAT::YOLOE;
@@ -44,7 +55,9 @@ inline const char* modelFormatName(const MODEL_FORMAT model_format) {
         case MODEL_FORMAT::YOLO12: return "YOLO12";
         case MODEL_FORMAT::YOLO26: return "YOLO26";
         case MODEL_FORMAT::YOLOE: return "YOLOE";
+#ifdef HAVE_HAILO
         case MODEL_FORMAT::HEF: return "HEF";
+#endif
         case MODEL_FORMAT::Unknown: return "Unknown";
     }
     return "Unknown";
@@ -55,7 +68,9 @@ inline const char* frameworkName(const FRAMEWORK framework) {
         case FRAMEWORK::OpenCV:      return "OpenCV";
         case FRAMEWORK::OpenVINO:    return "OpenVINO";
         case FRAMEWORK::ONNXRuntime: return "ONNXRuntime";
+#ifdef HAVE_HAILO
         case FRAMEWORK::Hailo:       return "Hailo";
+#endif
     }
     return "Unknown";
 }

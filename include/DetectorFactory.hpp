@@ -20,8 +20,10 @@ inline std::vector<FRAMEWORK> supportedBackendsFor(MODEL_FORMAT format) {
             return {FRAMEWORK::OpenCV, FRAMEWORK::ONNXRuntime, FRAMEWORK::OpenVINO};
         case MODEL_FORMAT::YOLO26:
             return {FRAMEWORK::ONNXRuntime, FRAMEWORK::OpenVINO};
+#ifdef HAVE_HAILO
         case MODEL_FORMAT::HEF:
             return {FRAMEWORK::Hailo};
+#endif
         case MODEL_FORMAT::Unknown:
             return {};
     }

@@ -22,7 +22,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 | macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled | ❌ |
 | macOS (Intel)         | ✅          | ✅            | ✅ when installed | ❌ |
 | Linux (Intel x86_64)  | ✅          | ✅            | ✅ when installed | ❌ |
-| Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled | ✅ when installed |
+| Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled | ✅ Raspberry Pi only, when installed |
 
 ---
 
@@ -33,7 +33,14 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **OpenCV** ≥ 4.x (with `opencv_dnn`, `opencv_tracking`)
 - **ONNX Runtime** *(optional, required for the ONNX Runtime backend)*
 - **OpenVINO** 2025.x *(optional, enabled by CMake only when an Intel CPU is detected)*
-- **HailoRT** *(optional, Linux/aarch64 only, required for `.hef` models)*
+- **HailoRT** *(optional, Raspberry Pi with 64-bit Linux only, required for `.hef` models)*
+
+Hailo/HEF support is compiled only when CMake detects a Raspberry Pi and finds
+both HailoRT and an enabled ONNX Runtime backend. Native builds detect the board
+through the Linux device tree. For cross-compilation, set
+`-DTARGET_RASPBERRY_PI=ON -DENABLE_HAILO=ON` alongside your Linux/aarch64 toolchain.
+Other targets disable Hailo, including its shared HEF/backend enum entries.
+Use `-DENABLE_HAILO=OFF` to omit it on a Raspberry Pi as well.
 
 ### Install OpenCV (macOS)
 
