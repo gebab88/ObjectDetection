@@ -40,7 +40,7 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
     output.data = nullptr;
 
     const std::vector<int64_t> shape = output.shape;
-    if (values.empty() || shape.size() < 2) {
+    if (values.empty() || shape.size() < 3) {
         yolo_postprocess::warnUnsupportedShape("CoreAI", shape);
         return;
     }
