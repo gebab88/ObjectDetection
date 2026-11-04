@@ -40,7 +40,10 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
     output.data = nullptr;
 
     const std::vector<int64_t> shape = output.shape;
-    if (values.empty() || shape.size() < 3) {
+    // The backend contract is a single-output rank-3 tensor (batch, fields/detections,
+    // values) — the same exact-rank requirement the ONNX Runtime backend enforces — so
+    // shape[1] and shape[2] can be indexed as fields/detections without ambiguity.
+    if (values.empty() || shape.size() != 3) {
         yolo_postprocess::warnUnsupportedShape("CoreAI", shape);
         return;
     }
