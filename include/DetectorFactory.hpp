@@ -19,8 +19,8 @@ inline std::vector<FRAMEWORK> supportedBackendsFor(MODEL_FORMAT format) {
         case MODEL_FORMAT::YOLOE:
             return {FRAMEWORK::OpenCV, FRAMEWORK::ONNXRuntime, FRAMEWORK::OpenVINO};
         case MODEL_FORMAT::YOLO26:
-            // Core AI serves the end-to-end YOLO26 head (raw-head exports get
-            // host-side NMS via the shared decoders).
+            // Core AI serves YOLO26 (end-to-end or raw-head exports; the shared
+            // decoder picks the head via the output shape, host-side NMS for raw).
             return {FRAMEWORK::ONNXRuntime, FRAMEWORK::OpenVINO, FRAMEWORK::CoreAI};
 #ifdef HAVE_HAILO
         case MODEL_FORMAT::HEF:
@@ -34,8 +34,10 @@ inline std::vector<FRAMEWORK> supportedBackendsFor(MODEL_FORMAT format) {
 
 // Builds the detector selected in cfg. Throws std::runtime_error with a clear
 // message when the model format is unknown, the chosen backend cannot handle
-// that format, or the backend was not compiled into this binary. May also
-// propagate backend exceptions (e.g. a missing or corrupt model file).
+// that format, or no backend can be built. May also propagate backend exceptions
+// (e.g. a missing or corrupt model file). The Core AI backend is the exception:
+// when it is not compiled into this binary or fails during initialisation, the
+// factory automatically falls back to the ONNX Runtime backend instead of throwing.
 std::unique_ptr<Detection> createDetector(const Config& cfg);
 
 #endif // OBJECTDETECTION_DETECTORFACTORY_HPP

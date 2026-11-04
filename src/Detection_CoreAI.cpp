@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <stdexcept>
 #include <vector>
 
 Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
@@ -13,6 +14,16 @@ Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
 
                                     Detection(score_threshold, model_shape, model_file),
                                     nms_threshold_(nms_threshold) {
+
+    // Interim fail-closed behaviour: the Swift Core AI interop layer (AIModel /
+    // InferenceFunction / InferenceValue) is not linked into this binary yet, so the
+    // `coreAIInfer` entry point is a placeholder that reports the inference as failed.
+    // Surface that as an initialisation failure so the detector factory can apply its
+    // documented automatic fallback to the ONNX Runtime backend.
+    CoreAITensor availability_probe;
+    if (coreAIInfer(nullptr, 0, nullptr, 0, &availability_probe) != 0) {
+        throw std::runtime_error("Core AI inference is unavailable (Swift Core AI interop layer missing or failing).");
+    }
 }
 
 void Detection_CoreAI::detect( cv::Mat &frame) {
@@ -63,7 +74,9 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
 // Placeholder implementation of the Swift Core AI interop entry point. The real
 // implementation lives in the Swift interop layer (AIModel / InferenceFunction /
 // InferenceValue) and is linked into the final app; until that layer is integrated
-// through CMake/Swift, fail closed so callers fall back to the ONNX Runtime backend.
+// through CMake/Swift, fail closed. The backend turns this failure into an
+// initialisation failure, so the detector factory falls back to the ONNX Runtime
+// backend, as documented.
 extern "C" int coreAIInfer(const float* input_data,
                            int64_t input_numel,
                            const int64_t* input_shape,
