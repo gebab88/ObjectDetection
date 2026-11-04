@@ -9,7 +9,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime, OpenVINO, Hailo and Core AI via `config.yaml` (a detector factory validates the choice against the model format)
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
 - **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux), HailoRT and Core AI (Apple Neural Engine, macOS 27+, opt-in)
-- **YOLO / HEF Support**: YOLOE open-vocabulary exports, YOLO v12 raw output, YOLO v26 end-to-end output and Hailo HEF models
+- **YOLO / HEF Support**: YOLOE open-vocabulary exports, YOLO v12 raw output, YOLO v26 end-to-end or raw output and Hailo HEF models
 - **Video Output**: Processed frames with bounding boxes are written to the configured output file
 - **Performance Timing**: Built-in high-resolution timer for total execution time
 
@@ -213,6 +213,11 @@ backend:
   itself has a CoreML / CPU fallback. A hard failure would regress the existing
   ONNX Runtime path.
 
+  > **Note:** the ONNX Runtime backend consumes ONNX-format assets and cannot run
+  > `.aimodel` files, so an automatic fallback for an `.aimodel` selection is
+  > inherently futile; the fallback is kept for the documented default behaviour and
+  > the semantic mismatch is a conscious interim decision.
+
 ### Test Matrix
 
 CI runs the following build-and-test matrix via GitHub Actions:
@@ -283,7 +288,8 @@ which backend is compiled in and selected:
   targets and platforms.
 
 Until the Swift interop layer is linked into the C++ binary, the compiled Core AI
-backend fails closed and the application falls back to the ONNX Runtime backend.
+backend fails closed during initialisation and the application falls back to the
+ONNX Runtime backend.
 
 ---
 
@@ -336,9 +342,11 @@ backend:
 ```
 
 The framework name is validated against the compiled backend set at startup and
-the factory reports a clear error when the chosen backend was not compiled in. On
-Apple Silicon the Core AI backend must be compiled in first via
-`-DENABLE_CORE_AI=ON` (see [Core AI Backend](#core-ai-backend-apple-platforms)).
+the factory reports a clear error when the chosen backend cannot handle the model
+format. On Apple Silicon the Core AI backend must be compiled in first via
+`-DENABLE_CORE_AI=ON` (see [Core AI Backend](#core-ai-backend-apple-platforms));
+when it is not compiled in or fails during initialisation, the factory falls back
+to the ONNX Runtime backend automatically.
 
 ---
 
@@ -389,12 +397,14 @@ fallback codecs and may use a new `.avi` fallback filename.
 
 The pipeline supports three YOLO output formats plus Hailo HEFs and Apple Core AI
 assets, detected from the model **filename** (`detectModelFormat`): **YOLO12**
-(raw grid output), **YOLO26** (end-to-end with built-in NMS), and **YOLOE**
+(raw grid output), **YOLO26** (end-to-end with built-in NMS, or raw with host-side
+NMS depending on the export), and **YOLOE**
 (open-vocabulary; raw or end-to-end depending on the export). Files ending in
 `.hef` use the **HEF** format and require the Hailo backend. Apple Core AI assets
 ending in `.aimodel` (YOLO26 end-to-end exports, e.g. via Ultralytics'
-`format="coreai"`) use the **YOLO26** format and are served by the Core AI backend
-on Apple Silicon.
+`format="coreai"`, or raw-head exports) use the **YOLO26** format and are served by
+the Core AI backend on Apple Silicon, which dispatches raw and end-to-end outputs
+via the shared decoders.
 
 | Model file        | Backend compatibility              | Notes                          |
 |-------------------|-------------------------------     |--------------------------------|
@@ -403,7 +413,7 @@ on Apple Silicon.
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
 | `*.hef`           | Hailo                               | HailoRT model; raw YOLO26 HEFs require `yolo26m_postprocess.onnx` |
-| `yolo26m.aimodel` | Core AI                            | Apple Silicon, macOS 27.0+ / Xcode 27; opt-in via `-DENABLE_CORE_AI=ON`, end-to-end YOLO26 export via Core AI |
+| `yolo26m.aimodel` | Core AI                            | Apple Silicon, macOS 27.0+ / Xcode 27; opt-in via `-DENABLE_CORE_AI=ON`, YOLO26 export via Core AI (end-to-end or raw-head, dispatched by output shape) |
 
 > **Note:** YOLOE class labels must match the classes used by `export.py`.
 
