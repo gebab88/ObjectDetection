@@ -334,8 +334,9 @@ inline bool decodeRaw(const float* data,
 }
 
 // Dispatches to the right decoder(s) based on the known model format: raw
-// (NMS-free) for YOLO12, end-to-end for YOLO26, and raw-then-end-to-end for the
-// YOLOE export (whose ONNX may be either, depending on the --nms export flag).
+// (NMS-free) for YOLO12, raw-or-end-to-end for YOLO26 (whose export may use the
+// raw head or the end-to-end head depending on the export), and raw-then-end-to-end
+// for the YOLOE export (whose ONNX may be either, depending on the --nms export flag).
 // Returns true when a decoder handled the output. Shared by all backends so the
 // format<->decoder rule lives in one place.
 inline bool decodeByFormat(MODEL_FORMAT model_format,
@@ -352,7 +353,18 @@ inline bool decodeByFormat(MODEL_FORMAT model_format,
             return decodeRaw(data, dim1, dim2, frame, model_shape, class_list,
                              score_threshold, nms_threshold);
         case MODEL_FORMAT::YOLO26:
-            return decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
+            // YOLO26 may be exported with the end-to-end head (built-in NMS) or the
+            // raw head (NMS-free, host-side NMS via the shared decoders). The shape
+            // decides, mirroring the YOLOE dispatch.
+            if (looksLikeEndToEndOutput(dim1, dim2)) {
+                return decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
+                                      score_threshold, nms_threshold) ||
+                       decodeRaw(data, dim1, dim2, frame, model_shape, class_list,
+                                 score_threshold, nms_threshold);
+            }
+            return decodeRaw(data, dim1, dim2, frame, model_shape, class_list,
+                             score_threshold, nms_threshold) ||
+                   decodeEndToEnd(data, dim1, dim2, frame, model_shape, class_list,
                                   score_threshold, nms_threshold);
         case MODEL_FORMAT::YOLOE:
             // The export may be raw (NMS-free) or end-to-end depending on the
