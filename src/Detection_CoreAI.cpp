@@ -56,3 +56,24 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
         yolo_postprocess::warnUnsupportedShape("CoreAI", {dim1, dim2});
     }
 }
+
+// Placeholder implementation of the Swift Core AI interop entry point. The real
+// implementation lives in the Swift interop layer (AIModel / InferenceFunction /
+// InferenceValue) and is linked into the final app; until that layer is integrated
+// through CMake/Swift, fail closed so callers fall back to the ONNX Runtime backend.
+extern "C" int coreAIInfer(const float* input_data,
+                           int64_t input_numel,
+                           const int64_t* input_shape,
+                           int64_t input_rank,
+                           CoreAITensor* output) {
+    (void)input_data;
+    (void)input_numel;
+    (void)input_shape;
+    (void)input_rank;
+    if (output != nullptr) {
+        output->data = nullptr;
+        output->numel = 0;
+        output->shape.clear();
+    }
+    return -1;
+}

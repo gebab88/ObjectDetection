@@ -69,6 +69,16 @@ jobs:
             cmake_flags: >-
               -DFETCH_GTEST=ON
 
+          - name: macos-coreai
+            os: macos-27
+            deps: macos
+            cmake_flags: >-
+              -DENABLE_ONNX_RUNTIME=OFF
+              -DENABLE_OPENVINO=OFF
+              -DENABLE_YAML_CONFIG=OFF
+              -DENABLE_CORE_AI=ON
+              -DFETCH_GTEST=ON
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

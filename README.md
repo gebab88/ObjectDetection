@@ -34,6 +34,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **ONNX Runtime** *(optional, required for the ONNX Runtime backend)*
 - **OpenVINO** 2025.x *(optional, enabled by CMake only when an Intel CPU is detected)*
 - **HailoRT** *(optional, Raspberry Pi with 64-bit Linux only, required for `.hef` models)*
+- **Core AI** *(optional, Apple Silicon only, requires macOS 27.0+ / Xcode 27 and the Swift interop layer)*
 
 Hailo/HEF support is compiled only when CMake detects a Raspberry Pi and finds
 both HailoRT and an enabled ONNX Runtime backend. Native builds detect the board
@@ -41,6 +42,9 @@ through the Linux device tree. For cross-compilation, set
 `-DTARGET_RASPBERRY_PI=ON -DENABLE_HAILO=ON` alongside your Linux/aarch64 toolchain.
 Other targets disable Hailo, including its shared HEF/backend enum entries.
 Use `-DENABLE_HAILO=OFF` to omit it on a Raspberry Pi as well.
+
+Core AI support is compiled only when CMake enables `-DENABLE_CORE_AI=ON` on an
+Apple Silicon build; other platforms and CPU architectures disable it automatically.
 
 ### Install OpenCV (macOS)
 
@@ -177,6 +181,25 @@ cmake .. \
   -DINFERENCE_TEST_VIDEO=/path/to/video.mov   # single-video override
 ```
 
+### Core AI Backend (Apple platforms)
+
+The optional Core AI backend (Apple's on-device inference framework for Apple
+Silicon, iOS 27.0+ / macOS 27.0+, Xcode 27) can be compiled into the binary on
+macOS. Configure and build with:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_CORE_AI=ON
+cmake --build build
+```
+
+- `-DENABLE_CORE_AI=ON` compiles the Core AI backend (`src/Detection_CoreAI.cpp`) and
+  defines the `HAVE_CORE_AI` backend switch. It is only available on Apple Silicon and
+  is disabled automatically on other platforms or CPU architectures; an Apple build
+  that enables it raises the macOS deployment target to 27.0 (Core AI requires
+  macOS 27.0+ / Xcode 27).
+- Without the flag, the Core AI backend is not compiled in and the existing backends
+  keep their default behaviour, so current builds are unaffected.
+
 ### Test Matrix
 
 CI runs the following build-and-test matrix via GitHub Actions:
@@ -189,6 +212,7 @@ CI runs the following build-and-test matrix via GitHub Actions:
 | `macos-minimal` | macOS | OpenCV-only build without optional backends or YAML |
 | `macos-yaml` | macOS | YAML config enabled, optional inference backends disabled |
 | `macos-default-discovery` | macOS | Default optional backend discovery with YAML available |
+| `macos-coreai` | macOS 27 (Xcode 27) | Core AI backend build enabled (`-DENABLE_CORE_AI=ON`) on Apple Silicon |
 
 ### Apple Neural Engine / NPU
 

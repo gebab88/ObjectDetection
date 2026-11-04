@@ -108,6 +108,14 @@ set(HAILO_BACKEND_ENABLED OFF)
 option(FETCH_GTEST "Download GoogleTest into the build directory when it is not installed" OFF)
 option(ENABLE_INFERENCE_TESTS "Build real ONNX inference tests when local model assets are available" ON)
 
+option(ENABLE_CORE_AI "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" OFF)
+if(ENABLE_CORE_AI)
+    if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        message(STATUS "Core AI backend disabled: requires Apple Silicon (macOS 27+ / Xcode 27).")
+        set(ENABLE_CORE_AI OFF CACHE BOOL "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" FORCE)
+    endif()
+endif()
+
 list(APPEND CMAKE_PREFIX_PATH "/opt/local" "/opt/local/libexec/opencv4" "/opt/homebrew" "/usr/local")
 
 find_package(OpenCV REQUIRED)
@@ -250,6 +258,24 @@ if(ENABLE_HAILO)
         message(WARNING "HailoRT found, but ONNX Runtime is unavailable: Hailo backend disabled.")
     else()
         message(STATUS "Hailo backend disabled: HailoRT not found.")
+    endif()
+endif()
+
+if(ENABLE_CORE_AI)
+    if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        # Apple's Core AI (WWDC 2026, iOS 27.0+ / macOS 27.0+, Xcode 27, Apple Silicon)
+        # is the successor inference runtime. It is opt-in and only compiled for Apple
+        # Silicon; the Swift interop layer provides the `coreAIInfer` C entry point and
+        # the backend fails closed until that layer is linked into the C++ binary.
+        if(CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 27.0)
+            set(CMAKE_OSX_DEPLOYMENT_TARGET 27.0 CACHE STRING "Minimum macOS version" FORCE)
+        endif()
+        list(APPEND PLATFORM_SOURCES src/Detection_CoreAI.cpp)
+        list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_CORE_AI)
+        message(STATUS "Core AI backend enabled: Apple Silicon with macOS 27+ / Xcode 27.")
+    else()
+        set(ENABLE_CORE_AI OFF CACHE BOOL "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" FORCE)
+        message(STATUS "Core AI backend disabled: requires Apple Silicon (macOS 27+ / Xcode 27).")
     endif()
 endif()
 
