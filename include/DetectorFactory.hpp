@@ -19,7 +19,9 @@ inline std::vector<FRAMEWORK> supportedBackendsFor(MODEL_FORMAT format) {
         case MODEL_FORMAT::YOLOE:
             return {FRAMEWORK::OpenCV, FRAMEWORK::ONNXRuntime, FRAMEWORK::OpenVINO};
         case MODEL_FORMAT::YOLO26:
-            return {FRAMEWORK::ONNXRuntime, FRAMEWORK::OpenVINO};
+            // Core AI serves the end-to-end YOLO26 head (raw-head exports get
+            // host-side NMS via the shared decoders).
+            return {FRAMEWORK::ONNXRuntime, FRAMEWORK::OpenVINO, FRAMEWORK::CoreAI};
 #ifdef HAVE_HAILO
         case MODEL_FORMAT::HEF:
             return {FRAMEWORK::Hailo};

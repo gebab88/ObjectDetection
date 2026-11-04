@@ -131,6 +131,10 @@ TEST(DetectModelFormat, ReturnsUnknownForOtherFiles) {
     EXPECT_EQ(detectModelFormat("some_model.onnx"), MODEL_FORMAT::Unknown);
 }
 
+TEST(DetectModelFormat, ReturnsYOLO26ForYolo26Aimodel) {
+    EXPECT_EQ(detectModelFormat("models/yolo26m.aimodel"), MODEL_FORMAT::YOLO26);
+}
+
 TEST(YoloPostprocess, DecodeRawDrawsBoundingBoxAndLabel) {
     constexpr int fields = 7; // x, y, w, h, 3 class scores
     constexpr int detections = 8;
@@ -312,6 +316,7 @@ TEST(ConfigParsing, FrameworkFromStringKnownValues) {
     EXPECT_EQ(frameworkFromString("OpenCV"), FRAMEWORK::OpenCV);
     EXPECT_EQ(frameworkFromString("OpenVINO"), FRAMEWORK::OpenVINO);
     EXPECT_EQ(frameworkFromString("ONNXRuntime"), FRAMEWORK::ONNXRuntime);
+    EXPECT_EQ(frameworkFromString("CoreAI"), FRAMEWORK::CoreAI);
 }
 
 TEST(ConfigParsing, FrameworkFromStringFallsBackToOpenCV) {
@@ -377,6 +382,10 @@ TEST(DetectorFactory, Yolo26ExcludesOpenCVButKeepsOthers) {
 
 TEST(DetectorFactory, UnknownFormatHasNoBackends) {
     EXPECT_TRUE(supportedBackendsFor(MODEL_FORMAT::Unknown).empty());
+}
+
+TEST(DetectorFactory, Yolo26SupportsCoreAIBackend) {
+    EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLO26, FRAMEWORK::CoreAI));
 }
 
 // decodeByFormat: dispatches to the right decoder(s) for each model format.

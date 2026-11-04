@@ -16,6 +16,10 @@
 #include "Detection_OpenVINO.hpp"
 #endif
 
+#ifdef HAVE_CORE_AI
+#include "Detection_CoreAI.hpp"
+#endif
+
 #ifdef HAVE_HAILO
 #include "Detection_Hailo.hpp"
 #endif
@@ -31,6 +35,29 @@ std::unique_ptr<Detection> createDetector(const Config& cfg) {
     if (std::find(supported.begin(), supported.end(), cfg.framework) == supported.end()) {
         throw std::runtime_error(std::string(frameworkName(cfg.framework)) +
                                  " backend does not support " + modelFormatName(format) + " models.");
+    }
+
+    // Core AI backend (opt-in, Apple-silicon-only, macOS 27+): when the backend is
+    // not compiled into this binary or its initialisation fails (missing .aimodel,
+    // Swift runtime, OS version, ...), fall back to the ONNX Runtime backend, which
+    // has a CoreML/CPU fallback of its own. A hard failure here would regress the
+    // existing ONNX Runtime path for platforms where Core AI is unavailable.
+    if (cfg.framework == FRAMEWORK::CoreAI) {
+#ifdef HAVE_CORE_AI
+        try {
+            return std::make_unique<Detection_CoreAI>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
+        } catch (const std::exception& e) {
+            std::cerr << "[CoreAI] Backend initialisation failed: " << e.what()
+                      << " – falling back to the ONNX Runtime backend." << std::endl;
+        }
+
+        // Fall back to the ONNX Runtime backend, which has a CoreML/CPU fallback.
+#ifdef HAVE_ONNX_RUNTIME
+        return std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
+#else
+        throw;
+#endif
+#endif
     }
 
     switch (cfg.framework) {
@@ -56,6 +83,10 @@ std::unique_ptr<Detection> createDetector(const Config& cfg) {
             return std::make_unique<Detection_Hailo>(cfg.score_threshold, cfg.nms_threshold,
                                                      cfg.model_shape, cfg.model_file);
 #endif
+        case FRAMEWORK::CoreAI:
+            // Only reachable when the Core AI backend was not compiled into this
+            // binary (the compiled build handles the fallback above and returns).
+            break;
     }
 
     throw std::runtime_error(std::string(frameworkName(cfg.framework)) +

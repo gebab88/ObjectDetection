@@ -9,6 +9,7 @@
 enum class FRAMEWORK {  OpenCV,
                         OpenVINO,
                         ONNXRuntime,
+                        CoreAI,
 #ifdef HAVE_HAILO
                         Hailo
 #endif
@@ -68,6 +69,7 @@ inline const char* frameworkName(const FRAMEWORK framework) {
         case FRAMEWORK::OpenCV:      return "OpenCV";
         case FRAMEWORK::OpenVINO:    return "OpenVINO";
         case FRAMEWORK::ONNXRuntime: return "ONNXRuntime";
+        case FRAMEWORK::CoreAI:      return "CoreAI";
 #ifdef HAVE_HAILO
         case FRAMEWORK::Hailo:       return "Hailo";
 #endif
