@@ -1,14 +1,14 @@
 # ObjectDetection
 
-Real-time object detection pipeline for video files and webcams, based on YOLO models. Supports four inference backends: **OpenCV DNN**, **ONNX Runtime**, **OpenVINO**, and **Hailo** – with optional hardware acceleration via CoreML (macOS), XNNPACK (ARM/Linux), and HAILO10H HEF models.
+Real-time object detection pipeline for video files and webcams, based on YOLO models. Supports five inference backends: **OpenCV DNN**, **ONNX Runtime**, **OpenVINO**, **Hailo**, and **Core AI** – with optional hardware acceleration via CoreML (macOS), XNNPACK (ARM/Linux), the Apple Neural Engine (via Core AI on Apple Silicon), and HAILO10H HEF models.
 
 ---
 
 ## Features
 
-- **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime, OpenVINO and Hailo via `config.yaml` (a detector factory validates the choice against the model format)
+- **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime, OpenVINO, Hailo and Core AI via `config.yaml` (a detector factory validates the choice against the model format)
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
-- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux) and HailoRT
+- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux), HailoRT and Core AI (Apple Neural Engine, macOS 27+, opt-in)
 - **YOLO / HEF Support**: YOLOE open-vocabulary exports, YOLO v12 raw output, YOLO v26 end-to-end output and Hailo HEF models
 - **Video Output**: Processed frames with bounding boxes are written to the configured output file
 - **Performance Timing**: Built-in high-resolution timer for total execution time
@@ -17,12 +17,12 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 ## Supported Platforms
 
-| Platform              | OpenCV DNN | ONNX Runtime | OpenVINO | Hailo |
-|-----------------------|:----------:|:------------:|:--------:|:-----:|
-| macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled | ❌ |
-| macOS (Intel)         | ✅          | ✅            | ✅ when installed | ❌ |
-| Linux (Intel x86_64)  | ✅          | ✅            | ✅ when installed | ❌ |
-| Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled | ✅ Raspberry Pi only, when installed |
+| Platform              | OpenCV DNN | ONNX Runtime | OpenVINO | Hailo | Core AI |
+|-----------------------|:----------:|:------------:|:--------:|:-----:|:------:|
+| macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled | ❌ | ✅ (opt-in, macOS 27.0+) |
+| macOS (Intel)         | ✅          | ✅            | ✅ when installed | ❌ | ❌ |
+| Linux (Intel x86_64)  | ✅          | ✅            | ✅ when installed | ❌ | ❌ |
+| Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled | ✅ Raspberry Pi only, when installed | ❌ |
 
 ---
 
@@ -199,6 +199,19 @@ cmake --build build
   macOS 27.0+ / Xcode 27).
 - Without the flag, the Core AI backend is not compiled in and the existing backends
   keep their default behaviour, so current builds are unaffected.
+- To select the backend at runtime, set the framework in the `backend:` section of
+  `config.yaml`:
+
+```yaml
+backend:
+  framework: "CoreAI"
+```
+
+- **Fallback:** when the backend was not compiled into the binary or fails during
+  initialisation (missing `.aimodel` asset, Swift runtime missing, OS version below
+  macOS 27.0, …), `createDetector` falls back to the ONNX Runtime backend — which
+  itself has a CoreML / CPU fallback. A hard failure would regress the existing
+  ONNX Runtime path.
 
 ### Test Matrix
 
@@ -253,6 +266,25 @@ ORT_COREML_COMPUTE_UNITS=CPUAndNeuralEngine   ./build/ObjectDetection  # CPU + A
 > `CPUAndNeuralEngine` does not guarantee the whole model runs on the Neural
 > Engine — it only enables that path.
 
+#### Core AI and the Apple Neural Engine
+
+On Apple Silicon the **Apple Neural Engine** is used in two ways, depending on
+which backend is compiled in and selected:
+
+- **ONNX Runtime + CoreML** (default-capable, see above): the CoreML Execution
+  Provider targets the Neural Engine and caches compiled models in
+  `.ort_coreml_cache/`.
+- **Core AI** (opt-in, see [Core AI Backend](#core-ai-backend-apple-platforms)):
+  Apple's newer **Core AI** framework (WWDC 2026, iOS 27.0+ / macOS 27.0+, Apple
+  Silicon, Xcode 27) runs inference on the Neural Engine through the Swift interop
+  layer (`AIModel` / `InferenceFunction` / `InferenceValue`, ahead-of-time
+  compiled `.aimodel` assets, unified CPU/GPU/Neural Engine runtime). The existing
+  ONNX Runtime / CoreML path remains the default and stays available for older
+  targets and platforms.
+
+Until the Swift interop layer is linked into the C++ binary, the compiled Core AI
+backend fails closed and the application falls back to the ONNX Runtime backend.
+
 ---
 
 ## Configuration
@@ -277,7 +309,7 @@ model:
   model_height: 640
 
 backend:
-  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime | Hailo
+  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime | CoreAI | Hailo
   use_cuda: false
 
 input:
@@ -294,6 +326,19 @@ display:
 
 If yaml-cpp or `config.yaml` is not available, the program uses built-in
 defaults that match the backends compiled into the binary.
+
+To run detection through the Apple **Core AI** backend instead of ONNX Runtime,
+set:
+
+```yaml
+backend:
+  framework: "CoreAI"
+```
+
+The framework name is validated against the compiled backend set at startup and
+the factory reports a clear error when the chosen backend was not compiled in. On
+Apple Silicon the Core AI backend must be compiled in first via
+`-DENABLE_CORE_AI=ON` (see [Core AI Backend](#core-ai-backend-apple-platforms)).
 
 ---
 
@@ -342,11 +387,14 @@ fallback codecs and may use a new `.avi` fallback filename.
 
 ### Supported Models
 
-The pipeline supports three YOLO output formats plus Hailo HEFs, detected from the model
-**filename** (`detectModelFormat`): **YOLO12** (raw grid output), **YOLO26**
-(end-to-end with built-in NMS), and **YOLOE** (open-vocabulary; raw or
-end-to-end depending on the export). Files ending in `.hef` use the **HEF**
-format and require the Hailo backend.
+The pipeline supports three YOLO output formats plus Hailo HEFs and Apple Core AI
+assets, detected from the model **filename** (`detectModelFormat`): **YOLO12**
+(raw grid output), **YOLO26** (end-to-end with built-in NMS), and **YOLOE**
+(open-vocabulary; raw or end-to-end depending on the export). Files ending in
+`.hef` use the **HEF** format and require the Hailo backend. Apple Core AI assets
+ending in `.aimodel` (YOLO26 end-to-end exports, e.g. via Ultralytics'
+`format="coreai"`) use the **YOLO26** format and are served by the Core AI backend
+on Apple Silicon.
 
 | Model file        | Backend compatibility              | Notes                          |
 |-------------------|-------------------------------     |--------------------------------|
@@ -355,6 +403,7 @@ format and require the Hailo backend.
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
 | `*.hef`           | Hailo                               | HailoRT model; raw YOLO26 HEFs require `yolo26m_postprocess.onnx` |
+| `yolo26m.aimodel` | Core AI                            | Apple Silicon, macOS 27.0+ / Xcode 27; opt-in via `-DENABLE_CORE_AI=ON`, end-to-end YOLO26 export via Core AI |
 
 > **Note:** YOLOE class labels must match the classes used by `export.py`.
 
@@ -435,6 +484,7 @@ ObjectDetection/
 | `Detection_ORT`     | ONNX Runtime backend; CoreML (macOS) and XNNPACK (ARM) EP   |
 | `Detection_OpenVINO`| OpenVINO backend *(Intel CPUs only; auto-disabled otherwise)* |
 | `Detection_Hailo`   | HailoRT backend for `.hef` models                           |
+| `Detection_CoreAI`  | Core AI backend for YOLO26 on Apple Silicon (macOS 27+, Swift interop layer; falls back to ONNX Runtime) |
 | `DetectorFactory`   | `createDetector()` builds the configured backend; `supportedBackendsFor()` encodes format↔backend compatibility (free functions) |
 | `YoloPostprocess`   | Header-only decoders (raw / end-to-end + `decodeByFormat` dispatch), NMS and box/label drawing |
 | `VideoHandler`      | Opens video/webcam, crops to square, writes output video     |

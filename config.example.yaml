@@ -13,7 +13,7 @@ model:
   model_height: 640
 
 backend:
-  framework: "Hailo"         # OpenCV | OpenVINO | ONNXRuntime | Hailo
+  framework: "Hailo"         # OpenCV | OpenVINO | ONNXRuntime | CoreAI | Hailo
   use_cuda: false
 
 input:
