@@ -108,7 +108,7 @@ set(HAILO_BACKEND_ENABLED OFF)
 option(FETCH_GTEST "Download GoogleTest into the build directory when it is not installed" OFF)
 option(ENABLE_INFERENCE_TESTS "Build real ONNX inference tests when local model assets are available" ON)
 
-option(ENABLE_CORE_AI "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" OFF)
+option(ENABLE_CORE_AI "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" ON)
 if(ENABLE_CORE_AI)
     if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
         message(STATUS "Core AI backend disabled: requires Apple Silicon (macOS 27+ / Xcode 27).")
