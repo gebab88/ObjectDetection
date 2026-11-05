@@ -66,7 +66,16 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
         shapeInts.append(Int(inputShape[i]))
     }
 
-    let inputNDArray = NDArray(shape: shapeInts, scalarType: .float32)
+    var inputNDArray = NDArray(shape: shapeInts, scalarType: .float32)
+    // Populate the input tensor with the preprocessed frame data passed in by the
+    // C++ backend; the NDArray above is zero-filled by default, so without this
+    // copy the model would run on an all-zero image.
+    inputNDArray.mutableRawView().withUnsafeMutableBytes { rawPtr, _, _ in
+        let buf = rawPtr.assumingMemoryBound(to: Float.self)
+        for i in 0..<Int(inputNumel) {
+            buf[i] = inputData[i]
+        }
+    }
 
     // The C entry point is synchronous, so the (async) Core AI inference runs on a
     // background task and the caller blocks until it completes.
