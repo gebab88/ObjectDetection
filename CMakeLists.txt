@@ -266,9 +266,36 @@ if(ENABLE_CORE_AI)
         # Apple's Core AI (WWDC 2026, iOS 27.0+ / macOS 27.0+, Xcode 27, Apple Silicon)
         # is the successor inference runtime. It is opt-in and only compiled for Apple
         # Silicon; the Swift interop layer provides the `coreAIInfer` C entry point and
-        # the backend fails closed until that layer is linked into the C++ binary.
+        # is compiled and linked into the C++ binary (see below).
         if(CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 27.0)
             set(CMAKE_OSX_DEPLOYMENT_TARGET 27.0 CACHE STRING "Minimum macOS version" FORCE)
+        endif()
+        # Swift interop layer implementing the `coreAIInfer` C entry point via
+        # `@_cdecl("coreAIInfer")` against Apple's Core AI framework. The object file is
+        # compiled with the command line Swift toolchain and added to the executable.
+        find_program(SWIFTC_EXECUTABLE
+            NAMES swiftc
+            PATHS /Library/Developer/CommandLineTools/usr/bin
+            NO_DEFAULT_PATH
+        )
+        if(SWIFTC_EXECUTABLE)
+            add_custom_command(
+                OUTPUT "${CMAKE_BINARY_DIR}/CoreAIInterop.o"
+                COMMAND swiftc
+                        -swift-version 5
+                        -parse-as-library
+                        -emit-object
+                        -module-name CoreAIInterop
+                        "${CMAKE_SOURCE_DIR}/swift/CoreAIInterop.swift"
+                        -o "${CMAKE_BINARY_DIR}/CoreAIInterop.o"
+                DEPENDS "${CMAKE_SOURCE_DIR}/swift/CoreAIInterop.swift"
+                COMMENT "Compiling Swift Core AI interop layer (CoreAIInterop.o)"
+                VERBATIM
+            )
+            list(APPEND PLATFORM_SOURCES "${CMAKE_BINARY_DIR}/CoreAIInterop.o")
+        else()
+            set(ENABLE_CORE_AI OFF CACHE BOOL "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" FORCE)
+            message(STATUS "Core AI backend disabled: Swift compiler (swiftc) not found.")
         endif()
         list(APPEND PLATFORM_SOURCES src/Detection_CoreAI.cpp)
         list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_CORE_AI)

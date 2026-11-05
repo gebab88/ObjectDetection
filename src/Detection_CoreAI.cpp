@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 #include <stdexcept>
 #include <vector>
 
@@ -14,16 +13,13 @@ Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
 
                                     Detection(score_threshold, model_shape, model_file),
                                     nms_threshold_(nms_threshold) {
-
-    // Interim fail-closed behaviour: the Swift Core AI interop layer (AIModel /
-    // InferenceFunction / InferenceValue) is not linked into this binary yet, so the
-    // `coreAIInfer` entry point is a placeholder that reports the inference as failed.
-    // Surface that as an initialisation failure so the detector factory can apply its
-    // documented automatic fallback to the ONNX Runtime backend.
-    CoreAITensor availability_probe;
-    if (coreAIInfer(nullptr, 0, nullptr, 0, &availability_probe) != 0) {
-        throw std::runtime_error("Core AI inference is unavailable (Swift Core AI interop layer missing or failing).");
-    }
+    // The Swift Core AI interop layer (AIModel / InferenceFunction / InferenceValue)
+    // provides the `coreAIInfer` C entry point and is compiled and linked into this
+    // binary when ENABLE_CORE_AI=ON on Apple Silicon (see the CMake option). The
+    // entry point fails closed (returns nonzero) for invalid input, and an inference
+    // failure surfaces through the usual unsupported-shape path in `detect`; there is
+    // no C++ placeholder entry point any more, so no initialisation probe is needed
+    // here.
 }
 
 void Detection_CoreAI::detect( cv::Mat &frame) {
@@ -37,31 +33,34 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
                            /*swapRB=*/true, /*crop=*/false);
 
     std::array<int64_t, 4> input_shape = {1, 3, static_cast<int64_t>(H), static_cast<int64_t>(W)};
-    CoreAITensor output;
+
+    // The Swift interop layer reports a single-output raw tensor. A raw YOLO26 head
+    // output is (1, 84, 8400) values and an end-to-end (built-in NMS) output is
+    // (1, N, 6); both fit into the raw-capacity buffer below (the backend is YOLO26
+    // family), and the Swift layer reports the actual number of valid values through
+    // *output_numel, so an oversized buffer is safe.
+    std::vector<float> output_buffer(8400 * 84, 0.0f);
+    int64_t output_numel = 0;
+    std::array<int64_t, 3> output_shape = {};
+    int64_t output_shape_capacity = static_cast<int64_t>(output_shape.size());
     const int status = coreAIInfer(blob_.ptr<float>(), static_cast<int64_t>(blob_.total()),
                                    input_shape.data(), static_cast<int64_t>(input_shape.size()),
-                                   &output);
-    if (status != 0 || output.data == nullptr) {
-        yolo_postprocess::warnUnsupportedShape("CoreAI", output.shape);
+                                   model_file_.c_str(), output_buffer.data(),
+                                   static_cast<int64_t>(output_buffer.size()),
+                                   &output_numel, output_shape.data(), output_shape_capacity);
+    if (status != 0 || output_numel <= 0) {
+        yolo_postprocess::warnUnsupportedShape("CoreAI", {});
         return;
     }
 
-    std::vector<float> values(output.data, output.data + output.numel);
-    std::free(output.data);
-    output.data = nullptr;
+    CoreAITensor output;
+    output.data = output_buffer.data();
+    output.numel = output_numel;
+    output.shape = {output_shape[0], output_shape[1], output_shape[2]};
 
-    const std::vector<int64_t> shape = output.shape;
-    // The backend contract is a single-output rank-3 tensor (batch, fields/detections,
-    // values) — the same exact-rank requirement the ONNX Runtime backend enforces — so
-    // shape[1] and shape[2] can be indexed as fields/detections without ambiguity.
-    if (values.empty() || shape.size() != 3) {
-        yolo_postprocess::warnUnsupportedShape("CoreAI", shape);
-        return;
-    }
-
-    const float* const data = values.data();
-    const int64_t dim1 = shape[1];
-    const int64_t dim2 = shape[2];
+    const float* const data = output.data;
+    const int64_t dim1 = output.shape[1];
+    const int64_t dim2 = output.shape[2];
 
     // The Core AI backend reuses the shared C++ decoders, so decoding, NMS and
     // drawing stay in C++ while inference runs in Swift.
@@ -69,27 +68,4 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
                                           class_list_, score_threshold_, nms_threshold_)) {
         yolo_postprocess::warnUnsupportedShape("CoreAI", {dim1, dim2});
     }
-}
-
-// Placeholder implementation of the Swift Core AI interop entry point. The real
-// implementation lives in the Swift interop layer (AIModel / InferenceFunction /
-// InferenceValue) and is linked into the final app; until that layer is integrated
-// through CMake/Swift, fail closed. The backend turns this failure into an
-// initialisation failure, so the detector factory falls back to the ONNX Runtime
-// backend, as documented.
-extern "C" int coreAIInfer(const float* input_data,
-                           int64_t input_numel,
-                           const int64_t* input_shape,
-                           int64_t input_rank,
-                           CoreAITensor* output) {
-    (void)input_data;
-    (void)input_numel;
-    (void)input_shape;
-    (void)input_rank;
-    if (output != nullptr) {
-        output->data = nullptr;
-        output->numel = 0;
-        output->shape.clear();
-    }
-    return -1;
 }
