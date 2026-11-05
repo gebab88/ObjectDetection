@@ -67,9 +67,10 @@ std::unique_ptr<Detection> createDetector(const Config& cfg) {
             // which has a CoreML/CPU fallback of its own. A hard failure here would
             // regress the existing ONNX Runtime path for platforms where Core AI is
             // unavailable, so the fallback is automatic and mirrors the documented
-            // behaviour. Note that the ONNX Runtime backend consumes ONNX-format assets
-            // and cannot run .aimodel files, so a fallback for an .aimodel selection is
-            // inherently futile; that semantic mismatch is a conscious interim decision.
+            // behaviour. The ONNX Runtime backend consumes ONNX-format assets, so an
+            // .aimodel selection is mapped to its ONNX counterpart (yolo26x.aimodel ->
+            // yolo26x.onnx) before the session is created instead of handing the
+            // .aimodel package to a backend that cannot load it.
 #ifdef HAVE_CORE_AI
             try {
                 return std::make_unique<Detection_CoreAI>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
@@ -82,7 +83,9 @@ std::unique_ptr<Detection> createDetector(const Config& cfg) {
 #endif
 #ifdef HAVE_ONNX_RUNTIME
             // Fall back to the ONNX Runtime backend, which has a CoreML/CPU fallback.
-            return std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape, cfg.model_file, cfg.nms_threshold);
+            // Map an .aimodel selection to the equivalent ONNX asset first.
+            return std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape,
+                                                   onnxFallbackModelPath(cfg.model_file), cfg.nms_threshold);
 #else
             throw std::runtime_error("The Core AI backend is unavailable and the ONNX Runtime backend was not compiled into this binary.");
 #endif

@@ -213,10 +213,38 @@ backend:
   itself has a CoreML / CPU fallback. A hard failure would regress the existing
   ONNX Runtime path.
 
+  Because the ONNX Runtime backend consumes ONNX-format assets, a Core AI selection
+  with an `.aimodel` model file is mapped to its ONNX counterpart
+  (`yolo26x.aimodel` → `yolo26x.onnx`) before the fallback hands the model to the ONNX
+  Runtime backend, so the fallback actually gets a loadable model.
+
+- **Model asset:** the Core AI backend runs an Apple Core AI `.aimodel` asset (the
+  successor of the CoreML `.mlmodel` format; an ONNX file such as `yolo26x.onnx` cannot
+  be loaded by it). Point `model_file` in `config.yaml` at the asset:
+
+```yaml
+model:
+  model_file: "yolo26x.aimodel"   # Apple Core AI asset; use "yolo26x.onnx" for ONNX Runtime
+  class_names_file: "coco.txt"
+  model_width: 640
+  model_height: 640
+```
+
+  The asset is produced with the Ultralytics Core AI export:
+
+```bash
+python3 -m ultralytics export model=yolo26x.pt format="coreai" imgsz=640
+```
+
+  This writes `yolo26x.aimodel` (static graph exported at `imgsz`, raw YOLO26 head
+  output `(1, 84, 8400)` with host-side NMS). Keep the asset next to the ONNX files in
+  the repository root and make sure the filename keeps the `yolo26` substring so the
+  model format is detected correctly.
+
   > **Note:** the ONNX Runtime backend consumes ONNX-format assets and cannot run
-  > `.aimodel` files, so an automatic fallback for an `.aimodel` selection is
-  > inherently futile; the fallback is kept for the documented default behaviour and
-  > the semantic mismatch is a conscious interim decision.
+  > `.aimodel` packages. The automatic fallback therefore maps an `.aimodel`
+  > selection to its ONNX counterpart (e.g. `yolo26x.aimodel` → `yolo26x.onnx`) and
+  > lets the ONNX Runtime backend load that instead.
 
 ### Test Matrix
 

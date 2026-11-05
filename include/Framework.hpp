@@ -77,4 +77,21 @@ inline const char* frameworkName(const FRAMEWORK framework) {
     return "Unknown";
 }
 
+// Maps a Core AI (.aimodel) asset to the equivalent ONNX asset for backends that
+// consume ONNX-format models (ONNX Runtime, OpenVINO, OpenCV DNN). The Core AI
+// export writes <stem>.aimodel next to the source <stem>.onnx, and those backends
+// cannot run the .aimodel package, so an .aimodel selection resolves to the plain
+// ONNX file. Anything else passes through unchanged and is handled elsewhere.
+inline std::string onnxFallbackModelPath(const std::string& model_file) {
+    const std::filesystem::path p(model_file);
+    std::string ext = p.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (ext != ".aimodel") {
+        return model_file;
+    }
+    return (p.parent_path() / (p.stem().string() + ".onnx")).string();
+}
+
 #endif //OPENCV_OBJECT_DETECTION_FRAMEWORK_HPP

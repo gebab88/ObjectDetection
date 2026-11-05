@@ -388,6 +388,21 @@ TEST(DetectorFactory, Yolo26SupportsCoreAIBackend) {
     EXPECT_TRUE(backendAllowed(MODEL_FORMAT::YOLO26, FRAMEWORK::CoreAI));
 }
 
+// Fallback mapping: a Core AI (.aimodel) selection must map to the equivalent
+// ONNX asset when the factory falls back to a backend that consumes ONNX models
+// (ONNX Runtime / OpenVINO / OpenCV DNN), instead of handing the .aimodel package
+// to an ONNX-format backend.
+
+TEST(DetectorFactory, AimodelFallbackMapsToOnnxCounterpart) {
+    EXPECT_EQ(onnxFallbackModelPath("yolo26x.aimodel"), "yolo26x.onnx");
+    EXPECT_EQ(onnxFallbackModelPath("models/yolo26m.aimodel"), "models/yolo26m.onnx");
+}
+
+TEST(DetectorFactory, OnnxModelFilesPassThroughUnchanged) {
+    EXPECT_EQ(onnxFallbackModelPath("yolo26x.onnx"), "yolo26x.onnx");
+    EXPECT_EQ(onnxFallbackModelPath("yoloe-26m-seg-pf.onnx"), "yoloe-26m-seg-pf.onnx");
+}
+
 // decodeByFormat: dispatches to the right decoder(s) for each model format.
 
 namespace {
