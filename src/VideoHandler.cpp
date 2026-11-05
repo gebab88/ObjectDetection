@@ -18,6 +18,21 @@ struct WriterCandidate {
     const char* label;
 };
 
+namespace {
+// Preferred OpenCV video capture backend. On Apple platforms the FFmpeg-backed
+// capture backend has proven unstable here (SIGSEGV inside
+// CvCapture_FFmpeg::get_rotation_angle during VideoCapture::open, reproducible
+// with the Homebrew/MacPorts OpenCV builds), so prefer the native AVFoundation
+// backend. Other platforms keep OpenCV's automatic backend selection.
+int preferredCaptureBackend() {
+#if defined(__APPLE__)
+    return static_cast<int>(cv::CAP_AVFOUNDATION);
+#else
+    return static_cast<int>(cv::CAP_ANY);
+#endif
+}
+}
+
 std::string lowercaseExtension(const std::string& path) {
     std::string ext = std::filesystem::path(path).extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
@@ -93,7 +108,7 @@ VideoHandler::~VideoHandler(){
 
 bool VideoHandler::open_file(const std::string &input_path) {
     // Implementation to open video file
-    cap_.open(input_path);
+    cap_.open(input_path, preferredCaptureBackend());
     if (!cap_.isOpened()) {
         std::cerr << "Error: Could not open video file: " << input_path << std::endl;
         return false;
@@ -106,7 +121,7 @@ bool VideoHandler::open_file(const std::string &input_path) {
 
 bool VideoHandler::open_webcam(const int &camera_index) {
     // Implementation to open webcam
-    cap_.open(camera_index);
+    cap_.open(camera_index, preferredCaptureBackend());
     if (!cap_.isOpened()) {
         std::cerr << "Error: Could not open webcam with index: " << camera_index << std::endl;
         return false;
