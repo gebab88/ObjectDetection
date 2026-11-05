@@ -39,19 +39,28 @@ std::unique_ptr<Detection> createDetector(const Config& cfg) {
 
     switch (cfg.framework) {
         case FRAMEWORK::OpenCV:
+            // ONNX-format backends cannot consume Core AI (.aimodel) packages, so
+            // map an .aimodel selection to its ONNX counterpart (see
+            // onnxFallbackModelPath) instead of handing the package to the backend.
             return std::make_unique<Detection_OpenCV>(cfg.score_threshold, cfg.model_shape,
-                                                      cfg.model_file, cfg.nms_threshold, cfg.use_cuda);
+                                                      onnxFallbackModelPath(cfg.model_file), cfg.nms_threshold, cfg.use_cuda);
         case FRAMEWORK::ONNXRuntime:
 #ifdef HAVE_ONNX_RUNTIME
+            // The ONNX Runtime backend consumes ONNX-format assets and cannot run
+            // .aimodel packages; map an .aimodel selection to its ONNX counterpart
+            // before the session is created instead of handing the .aimodel package
+            // to a backend that cannot load it.
             return std::make_unique<Detection_ORT>(cfg.score_threshold, cfg.model_shape,
-                                                   cfg.model_file, cfg.nms_threshold);
+                                                   onnxFallbackModelPath(cfg.model_file), cfg.nms_threshold);
 #else
             break;
 #endif
         case FRAMEWORK::OpenVINO:
 #ifdef HAVE_OPENVINO
+            // Same mapping: an .aimodel selection resolves to the plain ONNX file for
+            // backends that consume ONNX-format models.
             return std::make_unique<Detection_OpenVINO>(cfg.score_threshold, cfg.model_shape,
-                                                        cfg.model_file, cfg.nms_threshold);
+                                                        onnxFallbackModelPath(cfg.model_file), cfg.nms_threshold);
 #else
             break;
 #endif
