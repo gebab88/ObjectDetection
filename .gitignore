@@ -1,8 +1,12 @@
 CLAUDE.md
+AGENTS.md
+docs/
 *.onnx
 *.hef
 *.pt
+*.aimodel
 venv
+.venv/
 compile_commands.json
 *.cmake
 CMakeCache.txt
