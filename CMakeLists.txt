@@ -116,7 +116,7 @@ if(ENABLE_CORE_AI)
     endif()
 endif()
 
-list(APPEND CMAKE_PREFIX_PATH "/opt/local" "/opt/local/libexec/opencv4" "/opt/homebrew" "/usr/local")
+list(APPEND CMAKE_PREFIX_PATH "/opt/local" "/opt/local/libexec/opencv4" "/usr/local")
 
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
