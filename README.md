@@ -222,6 +222,19 @@ cmake .. \
   -DINFERENCE_TEST_VIDEO=/path/to/video.mov   # single-video override
 ```
 
+On a Raspberry Pi with HailoRT, CMake also builds `hailo_tests_runner` when
+`.hef` files lie in the project root. For every HEF it runs the first 40 frames
+of `tests/vtest.avi` on the accelerator and checks that frames processed with
+several in flight are pixel-identical to frames processed one at a time, and
+that people are detected. Without a connected Hailo device or the video, the
+tests are skipped. Optional inputs:
+
+```bash
+cmake .. \
+  -DHAILO_TEST_VIDEO=/path/to/video.avi \
+  -DHAILO_TEST_INCOMPATIBLE_HEF=/path/to/hailo8_model.hef  # checks the error for a HEF of another chip
+```
+
 ### Core AI Backend (Apple platforms)
 
 The Core AI backend (Apple's on-device inference framework for Apple Silicon,
@@ -583,6 +596,7 @@ ObjectDetection/
     ├── test_yolo26_decoder.cpp     # Raw YOLO26 head decoding (Hailo)
     ├── test_hailo_output.cpp       # Hailo NMS parsing, scaling and drawing
     ├── test_hailo_messages.cpp     # Hailo error messages
+    ├── test_hailo_inference.cpp    # End-to-end tests on the Hailo accelerator
     ├── test_detection_pipeline.cpp # Frame order and frames in flight
     └── *.MOV                 # Local, git-ignored test videos
 ```

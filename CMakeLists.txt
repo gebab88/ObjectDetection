@@ -533,6 +533,42 @@ if(BUILD_TESTING)
             endif()
         endif()
 
+        # End-to-end tests on the Hailo accelerator, run over the local HEFs in
+        # the source directory (git-ignored, see README) and tests/vtest.avi.
+        if(HAILO_BACKEND_ENABLED)
+            file(GLOB HAILO_TEST_HEFS_FOUND "${CMAKE_SOURCE_DIR}/*.hef")
+            set(HAILO_TEST_VIDEO "${CMAKE_SOURCE_DIR}/tests/vtest.avi" CACHE FILEPATH
+                "Video used by the Hailo inference tests")
+            set(HAILO_TEST_INCOMPATIBLE_HEF "" CACHE FILEPATH
+                "Optional HEF compiled for another Hailo chip, to test the error message")
+            if(HAILO_TEST_HEFS_FOUND)
+                string(REPLACE ";" "|" HAILO_TEST_HEFS_JOINED "${HAILO_TEST_HEFS_FOUND}")
+                add_executable(hailo_tests_runner
+                    tests/test_hailo_inference.cpp
+                    src/Detection.cpp
+                    src/DetectionPipeline.cpp
+                    src/Detection_Hailo.cpp
+                    src/Yolo26Decoder.cpp
+                    src/HailoOutput.cpp
+                    src/HailoMessages.cpp
+                )
+                target_include_directories(hailo_tests_runner PRIVATE include "${HAILORT_INCLUDE_DIR}")
+                target_compile_definitions(hailo_tests_runner PRIVATE
+                    HAVE_HAILO
+                    HAILO_TEST_HEFS="${HAILO_TEST_HEFS_JOINED}"
+                    HAILO_TEST_VIDEO="${HAILO_TEST_VIDEO}"
+                    HAILO_TEST_CLASSES="${CMAKE_SOURCE_DIR}/coco.txt"
+                    HAILO_TEST_INCOMPATIBLE_HEF="${HAILO_TEST_INCOMPATIBLE_HEF}"
+                )
+                target_link_libraries(hailo_tests_runner PRIVATE
+                    GTest::gtest_main ${OpenCV_LIBS} "${HAILORT_LIBRARY}")
+                add_test(NAME hailo_inference_tests COMMAND hailo_tests_runner)
+                set_tests_properties(hailo_inference_tests PROPERTIES TIMEOUT 180)
+                message(STATUS "Hailo inference tests enabled with: ${HAILO_TEST_HEFS_FOUND}")
+            else()
+                message(STATUS "Hailo inference tests disabled: no .hef file in ${CMAKE_SOURCE_DIR}.")
+            endif()
+        endif()
     else()
         message(WARNING "GTest not found: tests will not be built. Install GTest or configure CMake with -DFETCH_GTEST=ON.")
     endif()
