@@ -97,11 +97,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
     endforeach()
 endif()
 option(TARGET_RASPBERRY_PI "Target a Raspberry Pi (set explicitly when cross-compiling)" ${DEFAULT_TARGET_RASPBERRY_PI})
-option(ENABLE_HAILO "Build Raspberry Pi Hailo backend when HailoRT and ONNX Runtime are available" ${TARGET_RASPBERRY_PI})
+option(ENABLE_HAILO "Build Raspberry Pi Hailo backend when HailoRT is available" ${TARGET_RASPBERRY_PI})
 if(NOT TARGET_RASPBERRY_PI
    OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"
    OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-    set(ENABLE_HAILO OFF CACHE BOOL "Build Raspberry Pi Hailo backend when HailoRT and ONNX Runtime are available" FORCE)
+    set(ENABLE_HAILO OFF CACHE BOOL "Build Raspberry Pi Hailo backend when HailoRT is available" FORCE)
     message(STATUS "Hailo backend disabled: target is not a Raspberry Pi with 64-bit Linux.")
 endif()
 set(HAILO_BACKEND_ENABLED OFF)
@@ -267,17 +267,13 @@ if(ENABLE_HAILO)
         PATHS /usr/include /usr/local/include
     )
 
-    if(HAILORT_LIBRARY
-       AND HAILORT_INCLUDE_DIR
-       AND ONNX_RUNTIME_BACKEND_ENABLED)
-        list(APPEND PLATFORM_SOURCES src/Detection_Hailo.cpp)
+    if(HAILORT_LIBRARY AND HAILORT_INCLUDE_DIR)
+        list(APPEND PLATFORM_SOURCES src/Detection_Hailo.cpp src/Yolo26Decoder.cpp)
         list(APPEND PLATFORM_LIBS "${HAILORT_LIBRARY}")
         list(APPEND PLATFORM_INCLUDE_DIRS "${HAILORT_INCLUDE_DIR}")
         list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_HAILO)
         set(HAILO_BACKEND_ENABLED ON)
         message(STATUS "Hailo backend enabled: ${HAILORT_LIBRARY}")
-    elseif(HAILORT_LIBRARY OR HAILORT_INCLUDE_DIR)
-        message(WARNING "HailoRT found, but ONNX Runtime is unavailable: Hailo backend disabled.")
     else()
         message(STATUS "Hailo backend disabled: HailoRT not found.")
     endif()
@@ -470,9 +466,9 @@ if(BUILD_TESTING)
     endif()
 
     if(TARGET GTest::gtest_main)
-        add_executable(tests_runner tests/test_framework.cpp
+        add_executable(tests_runner tests/test_framework.cpp tests/test_yolo26_decoder.cpp
                                     tests/test_detection_pipeline.cpp
-                                    src/VideoHandler.cpp
+                                    src/VideoHandler.cpp src/Yolo26Decoder.cpp
                                     src/Detection.cpp src/DetectionPipeline.cpp)
         target_include_directories(tests_runner PRIVATE include)
         target_link_libraries(tests_runner PRIVATE GTest::gtest_main ${OpenCV_LIBS})

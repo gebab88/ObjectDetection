@@ -39,11 +39,17 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **Core AI** *(optional, Apple Silicon only, requires macOS 27.0+ / Xcode 27 and the Swift interop layer)*
 
 Hailo/HEF support is compiled only when CMake detects a Raspberry Pi and finds
-both HailoRT and an enabled ONNX Runtime backend. Native builds detect the board
+HailoRT. Native builds detect the board
 through the Linux device tree. For cross-compilation, set
 `-DTARGET_RASPBERRY_PI=ON -DENABLE_HAILO=ON` alongside your Linux/aarch64 toolchain.
 Other targets disable Hailo, including its shared HEF/backend enum entries.
 Use `-DENABLE_HAILO=OFF` to omit it on a Raspberry Pi as well.
+
+The Hailo backend keeps up to four frames in flight (`run_async`), so the chip
+works on the next frames while the CPU reads, decodes and writes the others.
+On a Raspberry Pi 5 with Hailo-10H this reaches the chip's own throughput on
+`tests/vtest.avi`: about 78 FPS with `yolov8m.hef` and 59 FPS with
+`yolo26m_hailo10h.hef`.
 
 Core AI support (`ENABLE_CORE_AI`, default ON) is compiled only on Apple Silicon
 when `swiftc`, a macOS SDK that ships `CoreAI.framework` (Xcode 27+) and macOS 27+
@@ -491,7 +497,7 @@ via the shared decoders.
 | `yolo12m.onnx`    | OpenCV DNN, ONNX Runtime, OpenVINO | Standard YOLO output (NMS required) |
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
-| `*.hef`           | Hailo                               | HailoRT model; raw YOLO26 HEFs require `yolo26m_postprocess.onnx` in the same directory as the HEF |
+| `*.hef`           | Hailo                               | HailoRT model, either with on-chip NMS (e.g. yolov8m) or a raw YOLO26 head decoded on the CPU (e.g. yolo26m) |
 | `yolo26m.aimodel` | Core AI                            | Apple Silicon, macOS 27.0+ / Xcode 27; built automatically when the toolchain supports it, YOLO26 export via Core AI (end-to-end or raw-head, dispatched by output shape) |
 
 > **Note:** YOLOE class labels must match the classes used by `export.py`.
@@ -511,7 +517,7 @@ The pipeline has been run with the following exported models:
 | `yoloe-26x-seg-pf.onnx`  | YOLOE  | Prompt-free, larger variant             |
 | `yoloe-26x-seg.onnx`     | YOLOE  | Open-vocabulary, larger variant         |
 | `nanodet_repvgg_a12_hailo10h.hef` | HEF | HailoRT backend |
-| `yolo26m_hailo10h.hef`   | HEF    | Raw Hailo outputs with ONNX postprocess |
+| `yolo26m_hailo10h.hef`   | HEF    | Raw YOLO26 head, decoded on the CPU     |
 
 The `-seg` models are segmentation exports, but only their bounding boxes are
 used (see Known Limitations). `-pf` denotes the prompt-free YOLOE variant.
@@ -535,6 +541,8 @@ ObjectDetection/
 │   ├── Detection_ORT.hpp
 │   ├── Detection_OpenVINO.hpp
 │   ├── Detection_Hailo.hpp
+│   ├── Yolo26Decoder.hpp     # Decoder for raw YOLO26 heads of Hailo HEFs
+│   ├── DetectionPipeline.hpp # Frame loop keeping several frames in flight
 │   ├── DetectorFactory.hpp   # Backend selection + createDetector()
 │   ├── VideoHandler.hpp
 │   ├── AudioMux.hpp          # Audio passthrough into the output video (FFmpeg)
@@ -551,6 +559,8 @@ ObjectDetection/
 │   ├── Detection_OpenCV.cpp
 │   ├── Detection_ORT.cpp
 │   ├── Detection_Hailo.cpp
+│   ├── Yolo26Decoder.cpp
+│   ├── DetectionPipeline.cpp
 │   ├── DetectorFactory.cpp
 │   ├── VideoHandler.cpp
 │   ├── AudioMux.cpp
@@ -562,6 +572,8 @@ ObjectDetection/
     ├── test_framework.cpp    # Unit tests (format, decoders, config, ...)
     ├── test_inference.cpp    # Real ONNX inference test over tests/ videos
     ├── test_audio_mux.cpp    # Audio passthrough tests (built with FFmpeg libraries)
+    ├── test_yolo26_decoder.cpp     # Raw YOLO26 head decoding (Hailo)
+    ├── test_detection_pipeline.cpp # Frame order and frames in flight
     └── *.MOV                 # Local, git-ignored test videos
 ```
 
@@ -571,12 +583,14 @@ ObjectDetection/
 
 | Class               | Responsibility                                               |
 |---------------------|--------------------------------------------------------------|
-| `Detection`         | Abstract base class; loads class names, holds shared state   |
+| `Detection`         | Abstract base class; loads class names, holds shared state; `detect_async()` / `max_frames_in_flight()` for pipelined backends (default: synchronous `detect()`) |
 | `Detection_OpenCV`  | OpenCV DNN backend; CUDA support optional                    |
 | `Detection_ORT`     | ONNX Runtime backend; CoreML (macOS) and XNNPACK (ARM) EP   |
 | `Detection_OpenVINO`| OpenVINO backend *(Intel CPUs only; auto-disabled otherwise)* |
-| `Detection_Hailo`   | HailoRT backend for `.hef` models                           |
+| `Detection_Hailo`   | HailoRT backend for `.hef` models; async inference with up to four frames in flight |
 | `Detection_CoreAI`  | Core AI backend for YOLO26 on Apple Silicon (macOS 27+, Swift interop layer; falls back to ONNX Runtime) |
+| `detection_pipeline`| `run()` reads, detects and delivers frames in order, with up to `max_frames_in_flight()` frames in progress |
+| `yolo26`            | `decode()` turns the quantized raw YOLO26 head outputs of a HEF into boxes (no ONNX postprocess model needed) |
 | `DetectorFactory`   | `createDetector()` builds the configured backend; `supportedBackendsFor()` encodes format↔backend compatibility (free functions) |
 | `YoloPostprocess`   | Header-only decoders (raw / end-to-end + `decodeByFormat` dispatch), NMS and box/label drawing |
 | `VideoHandler`      | Opens video/webcam, crops to square, writes output video; `finish_output()` closes it and adds the source audio |
@@ -603,21 +617,12 @@ ObjectDetection/
 - **OpenCV DNN + yolo26**: Not supported. OpenCV's DNN module cannot load the
   end-to-end YOLO26 graph, so `main()` does not offer the OpenCV backend for
   YOLO26 models. Use the ONNX Runtime or OpenVINO backend instead.
-- **Raw Hailo YOLO26**: The raw-output postprocess path currently targets
-  YOLO26m and expects `yolo26m_postprocess.onnx` in the same directory as the
-  `.hef` file (the HEF path is resolved against the config directory, so the
-  binary can be started from any working directory). The postprocess model is
-  the decode part of the Ultralytics end-to-end export, cut at the six
-  `one2one_cv2/cv3` head convolutions that the HEF outputs:
-  ```bash
-  yolo export model=yolo26m.pt format=onnx imgsz=640 opset=17 end2end=True
-  python3 - <<'PY'
-  import onnx, onnx.shape_inference, onnx.utils
-  onnx.save(onnx.shape_inference.infer_shapes(onnx.load("yolo26m.onnx")), "yolo26m_inferred.onnx")
-  heads = [f"/model.23/one2one_cv{a}.{i}/one2one_cv{a}.{i}.2/Conv_output_0" for i in range(3) for a in (2, 3)]
-  onnx.utils.extract_model("yolo26m_inferred.onnx", "yolo26m_postprocess.onnx", heads, ["output0"])
-  PY
-  ```
+- **Raw Hailo YOLO26**: HEFs without on-chip NMS must contain a YOLO26
+  detection head: per scale one 4-channel box output and one class output with
+  the same grid, UINT16 with a single quantization scale each (as in the Model
+  Zoo's `yolo26m`). The outputs are matched by shape, not by name, so other
+  YOLO26 sizes with this layout should work too; only `yolo26m` is tested.
+  Other raw heads (e.g. YOLOv8 with DFL box outputs) are rejected at startup.
 - **CI coverage of optional backends** *(deferred, YAGNI)*: CI builds only the
   OpenCV-based configurations. The ONNX Runtime backend expects a local install
   under `onnxruntime/`, which does not exist on the CI runners, so
