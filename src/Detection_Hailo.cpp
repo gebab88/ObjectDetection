@@ -205,7 +205,10 @@ void Detection_Hailo::setup_yolo26_postprocess() {
         }
     }
 
-    std::filesystem::path postprocess_path = "yolo26m_postprocess.onnx";
+    // Look next to the HEF (whose path is already resolved against the config
+    // directory), so running from build/ still finds the repo-root model.
+    const std::filesystem::path postprocess_path =
+        std::filesystem::path(model_file_).parent_path() / "yolo26m_postprocess.onnx";
     if (!std::filesystem::exists(postprocess_path)) {
         throw std::runtime_error("[Hailo] Missing YOLO26 postprocess model: "
                                  + postprocess_path.string());
