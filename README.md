@@ -11,6 +11,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux), HailoRT and Core AI (Apple Neural Engine, macOS 27+ / Xcode 27, built automatically when available)
 - **YOLO / HEF Support**: YOLOE open-vocabulary exports, YOLO v12 raw output, YOLO v26 end-to-end or raw output and Hailo HEF models
 - **Video Output**: Processed frames with bounding boxes are written to the configured output file
+- **Audio Passthrough**: The sound of an input video file is copied unchanged into the output (requires the FFmpeg libraries, see [Audio Passthrough](#audio-passthrough))
 - **Performance Timing**: Built-in high-resolution timer for total execution time
 
 ---
@@ -33,6 +34,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 - **OpenCV** ≥ 4.x (with `opencv_dnn`, `opencv_tracking`)
 - **ONNX Runtime** *(optional, required for the ONNX Runtime backend)*
 - **OpenVINO** 2025.x *(optional, enabled by CMake only when an Intel CPU is detected)*
+- **FFmpeg libraries** *(optional: `libavformat`, `libavcodec`, `libavutil` via pkg-config, required for audio passthrough)*
 - **HailoRT** *(optional, Raspberry Pi with 64-bit Linux only, required for `.hef` models)*
 - **Core AI** *(optional, Apple Silicon only, requires macOS 27.0+ / Xcode 27 and the Swift interop layer)*
 
@@ -62,6 +64,8 @@ sudo port install opencv4
 ### Install OpenCV (Linux / ARM)
 ```bash
 sudo apt install libopencv-dev
+# Optional, for audio passthrough (usually already pulled in by libopencv-dev):
+sudo apt install libavformat-dev libavcodec-dev libavutil-dev pkg-config
 ```
 
 ### ONNX Runtime
@@ -157,6 +161,32 @@ cmake --build . -- -j$(nproc)
 ```
 
 The resulting binary is `ObjectDetection` inside the `build/` directory.
+
+### Audio Passthrough
+
+OpenCV's `cv::VideoWriter` writes images only, so without extra work the
+output video has no sound. When CMake finds the FFmpeg libraries
+(`libavformat`, `libavcodec`, `libavutil` via pkg-config) it builds
+`src/AudioMux.cpp` and defines `HAVE_AUDIO_PASSTHROUGH`; the configure step
+prints `Audio passthrough enabled` or the reason it is disabled.
+
+- After the last frame (also after Ctrl+C) the program copies the audio track of
+  the input **video file** into the output, without re-encoding, and cuts it at
+  the end of the processed video. Webcam runs stay silent.
+- The audio keeps its timing relative to the first video frame. For iPhone
+  clips (AAC) an `.mp4`/`.mov` output keeps the audio exactly as in the source,
+  including the AAC encoder priming. AVI cannot store that, so an `.avi` output
+  starts with the audio packet that covers t = 0 (offset below 1 ms for iPhone clips).
+- When the source has several audio tracks (e.g. spatial audio), the default
+  track is used if the output container can hold it, otherwise the first one that fits.
+- If the source has no audio, or copying fails, the video is kept without sound
+  and a message is printed; the run itself does not fail.
+- The output is written to `<name>.audio-tmp.<ext>` next to the output first and
+  then replaces it.
+
+Disable it with `-DENABLE_AUDIO_PASSTHROUGH=OFF`. On macOS the FFmpeg libraries
+come with Homebrew's or MacPorts' OpenCV (`ffmpeg` package); make sure
+`pkg-config` is installed.
 
 Tests are built when GoogleTest is installed. To let CMake download GoogleTest
 into the build directory, configure with `-DFETCH_GTEST=ON`.
@@ -507,6 +537,7 @@ ObjectDetection/
 │   ├── Detection_Hailo.hpp
 │   ├── DetectorFactory.hpp   # Backend selection + createDetector()
 │   ├── VideoHandler.hpp
+│   ├── AudioMux.hpp          # Audio passthrough into the output video (FFmpeg)
 │   ├── FrameCrop.hpp         # Centered-square crop helper
 │   ├── YoloPostprocess.hpp   # Decoders (raw / end-to-end) + drawing
 │   ├── config_loader.hpp     # Config struct + YAML loading + path resolution
@@ -522,6 +553,7 @@ ObjectDetection/
 │   ├── Detection_Hailo.cpp
 │   ├── DetectorFactory.cpp
 │   ├── VideoHandler.cpp
+│   ├── AudioMux.cpp
 │   ├── Tracker.cpp
 │   ├── Timer.cpp
 │   └── openvino/
@@ -529,6 +561,7 @@ ObjectDetection/
 └── tests/
     ├── test_framework.cpp    # Unit tests (format, decoders, config, ...)
     ├── test_inference.cpp    # Real ONNX inference test over tests/ videos
+    ├── test_audio_mux.cpp    # Audio passthrough tests (built with FFmpeg libraries)
     └── *.MOV                 # Local, git-ignored test videos
 ```
 
@@ -546,7 +579,8 @@ ObjectDetection/
 | `Detection_CoreAI`  | Core AI backend for YOLO26 on Apple Silicon (macOS 27+, Swift interop layer; falls back to ONNX Runtime) |
 | `DetectorFactory`   | `createDetector()` builds the configured backend; `supportedBackendsFor()` encodes format↔backend compatibility (free functions) |
 | `YoloPostprocess`   | Header-only decoders (raw / end-to-end + `decodeByFormat` dispatch), NMS and box/label drawing |
-| `VideoHandler`      | Opens video/webcam, crops to square, writes output video     |
+| `VideoHandler`      | Opens video/webcam, crops to square, writes output video; `finish_output()` closes it and adds the source audio |
+| `audio_mux`         | `copyAudioTrack()` remuxes the source's audio track into the finished output video (stream copy, FFmpeg) |
 | `Timer`             | High-resolution wall-clock timer using `std::chrono`         |
 | `Tracker`           | **Stub** – thin `track()` wrapper around an OpenCV tracker; not wired into the pipeline (see Known Limitations) |
 

@@ -108,6 +108,7 @@ set(HAILO_BACKEND_ENABLED OFF)
 option(FETCH_GTEST "Download GoogleTest into the build directory when it is not installed" OFF)
 option(ENABLE_INFERENCE_TESTS "Build real ONNX inference tests when local model assets are available" ON)
 
+option(ENABLE_AUDIO_PASSTHROUGH "Copy the input video's audio track into the output video when the FFmpeg libraries are available" ON)
 option(ENABLE_CORE_AI "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" ON)
 if(ENABLE_CORE_AI)
     if(NOT APPLE OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
@@ -140,6 +141,26 @@ set(COMMON_SOURCES
     src/Detection_OpenCV.cpp
     src/DetectorFactory.cpp
 )
+
+# Audio passthrough: cv::VideoWriter writes no sound, so the audio track is
+# remuxed from the input with libavformat (the FFmpeg libraries OpenCV itself
+# uses for video I/O on Linux; Homebrew/MacPorts FFmpeg on macOS).
+set(AUDIO_PASSTHROUGH_ENABLED OFF)
+if(ENABLE_AUDIO_PASSTHROUGH)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(LIBAV IMPORTED_TARGET libavformat libavcodec libavutil)
+    endif()
+    if(LIBAV_FOUND)
+        list(APPEND COMMON_SOURCES src/AudioMux.cpp)
+        list(APPEND PLATFORM_LIBS PkgConfig::LIBAV)
+        list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_AUDIO_PASSTHROUGH)
+        set(AUDIO_PASSTHROUGH_ENABLED ON)
+        message(STATUS "Audio passthrough enabled: libavformat ${LIBAV_libavformat_VERSION}")
+    else()
+        message(STATUS "Audio passthrough disabled: FFmpeg libraries (libavformat, libavcodec, libavutil) not found via pkg-config; output videos have no sound.")
+    endif()
+endif()
 
 if(ENABLE_YAML_CONFIG)
     find_package(yaml-cpp QUIET)
@@ -461,6 +482,11 @@ if(BUILD_TESTING)
             if(YAML_CPP_EXTRA_INCLUDE_DIRS)
                 target_include_directories(tests_runner PRIVATE ${YAML_CPP_EXTRA_INCLUDE_DIRS})
             endif()
+        endif()
+        if(AUDIO_PASSTHROUGH_ENABLED)
+            target_sources(tests_runner PRIVATE tests/test_audio_mux.cpp src/AudioMux.cpp)
+            target_compile_definitions(tests_runner PRIVATE HAVE_AUDIO_PASSTHROUGH)
+            target_link_libraries(tests_runner PRIVATE PkgConfig::LIBAV)
         endif()
         add_test(NAME framework_tests COMMAND tests_runner)
 

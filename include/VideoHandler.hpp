@@ -35,10 +35,17 @@ class VideoHandler {
         void showFrame( const std::string &windowName,  const cv::Mat &frame ) ;
         bool write( cv::Mat &frame );
 
+        // Closes the output video. For a source opened with open_file(), the
+        // source's audio track is then copied into the output (when built with
+        // HAVE_AUDIO_PASSTHROUGH); failures only print a warning and keep the
+        // video without sound. Safe to call when no frame was written.
+        void finish_output();
+
     private:
         bool openWriter(const cv::Size &output_size);
 
         std::string output_path_;
+        std::string input_file_;  // set by open_file(); empty for webcams
 
         cv::VideoCapture cap_;
         cv::VideoWriter output_;

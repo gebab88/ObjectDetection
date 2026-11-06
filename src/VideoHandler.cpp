@@ -8,6 +8,9 @@
 
 #include "VideoHandler.hpp"
 #include "FrameCrop.hpp"
+#ifdef HAVE_AUDIO_PASSTHROUGH
+#include "AudioMux.hpp"
+#endif
 
 // int VideoHandler::fourcc = static_cast<int>(cap.get(cv::CAP_PROP_FOURCC));
 
@@ -100,6 +103,7 @@ bool VideoHandler::open_file(const std::string &input_path) {
         return false;
     }
     std::cout << "Successfully opened video file: " << input_path << std::endl;
+    input_file_ = input_path;
     fps = sanitizedFps(cap_.get(cv::CAP_PROP_FPS));
     printVideoProperties();
     return true;
@@ -113,6 +117,7 @@ bool VideoHandler::open_webcam(const int &camera_index) {
         return false;
     }
     std::cout << "Successfully opened webcam with index: " << camera_index << std::endl;
+    input_file_.clear();
     fps = sanitizedFps(cap_.get(cv::CAP_PROP_FPS));
     return true;
 }
@@ -186,6 +191,33 @@ bool VideoHandler::write( cv::Mat &frame ) {
     }
     output_.write(frame);
     return true;
+}
+
+void VideoHandler::finish_output() {
+    if (!output_.isOpened()) {
+        return;  // nothing written (or already finished)
+    }
+    output_.release();
+
+#ifdef HAVE_AUDIO_PASSTHROUGH
+    if (input_file_.empty()) {
+        return;  // webcam: no audio to copy
+    }
+    const auto result = audio_mux::copyAudioTrack(input_file_, output_path_);
+    switch (result.status) {
+        case audio_mux::Status::Added:
+            std::cout << "Audio: " << result.message << std::endl;
+            break;
+        case audio_mux::Status::NoAudio:
+            std::cout << "Audio: " << result.message << "; output has no sound." << std::endl;
+            break;
+        case audio_mux::Status::Unsupported:
+        case audio_mux::Status::Failed:
+            std::cerr << "Warning: could not copy the audio track (" << result.message
+                      << "); keeping the video without sound." << std::endl;
+            break;
+    }
+#endif
 }
 
 bool VideoHandler::read( cv::Mat &frame ) {

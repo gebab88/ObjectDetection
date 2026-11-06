@@ -150,6 +150,9 @@ int main(int argc, char** argv) {
     } else {
         std::cout << "No more frames to read or error occurred." << std::endl;
     }
+    // Close the output and copy the source's audio track into it (also after
+    // Ctrl+C: the sound is cut to the frames written so far).
+    video.finish_output();
     timer.stop();
 
     std::cout << std::fixed << std::setprecision(2);
