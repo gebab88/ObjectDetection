@@ -2,6 +2,7 @@
 
 #include "Detection_ORT.hpp"
 #include "FrameCrop.hpp"
+#include "VideoHandler.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -74,9 +75,11 @@ TEST_P(RealOnnxInference, DrawsBoundingBoxOnVideoFrame) {
     }
 
     Detection_ORT detector(0.25f, cv::Size2f(640, 640), model_file, 0.5f);
-    detector.load_class_list(classes_file);
+    ASSERT_TRUE(detector.load_class_list(classes_file)) << "Could not load " << classes_file;
 
-    cv::VideoCapture capture(video_file);
+    // Same capture backend as the app: OpenCV's default (FFmpeg) crashes on macOS
+    // while opening .MOV files (see VideoHandler::preferredCaptureBackend).
+    cv::VideoCapture capture(video_file, VideoHandler::preferredCaptureBackend());
     ASSERT_TRUE(capture.isOpened()) << "Could not open test video: " << video_file;
 
     constexpr int max_frames = 80;

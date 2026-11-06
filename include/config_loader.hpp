@@ -68,11 +68,13 @@ inline FRAMEWORK frameworkFromString(const std::string& s) {
 }
 
 // ─── Helper: string → SOURCE ──────────────────────────────────────────────
+// Maps `input.source` to the enum. Like frameworkFromString, an unknown name
+// throws std::invalid_argument instead of silently falling back to VIDEO.
 inline SOURCE sourceFromString(const std::string& s) {
     if (s == "VIDEO")   return SOURCE::VIDEO;
     if (s == "WEBCAM")  return SOURCE::WEBCAM;
-    std::cerr << "Unknown source: " << s << " – falling back to VIDEO." << std::endl;
-    return SOURCE::VIDEO;
+    throw std::invalid_argument("Unknown input source '" + s +
+                                "' (names are case-sensitive). Valid values: VIDEO, WEBCAM.");
 }
 
 // ─── Helper: reset invalid config values to the built-in defaults ────────────
@@ -169,9 +171,9 @@ inline Config loadConfigYAML(const std::string& path) {
                 y["model"]["model_width"].as<int>(static_cast<int>(cfg.model_shape.width)),
                 y["model"]["model_height"].as<int>(static_cast<int>(cfg.model_shape.height)));
 
-            // frameworkFromString throws std::invalid_argument for an unknown name;
-            // that is deliberately not caught here, so loading aborts instead of
-            // running a different backend than the one requested.
+            // frameworkFromString / sourceFromString throw std::invalid_argument for
+            // an unknown name; that is deliberately not caught here, so loading
+            // aborts instead of running a different backend or source than requested.
             if (y["backend"]["framework"])
                 cfg.framework     = frameworkFromString(y["backend"]["framework"].as<std::string>());
             cfg.use_cuda          = y["backend"]["use_cuda"].as<bool>(cfg.use_cuda);

@@ -405,10 +405,16 @@ TEST(ConfigParsing, SourceFromStringKnownValues) {
     EXPECT_EQ(sourceFromString("WEBCAM"), SOURCE::WEBCAM);
 }
 
-TEST(ConfigParsing, SourceFromStringFallsBackToVideo) {
-    StreamCapture capture(std::cerr);
-    const SOURCE source = sourceFromString("does-not-exist");
-    EXPECT_EQ(source, SOURCE::VIDEO);
+TEST(ConfigParsing, SourceFromStringRejectsUnknownNames) {
+    // Like the backend name, a typo must not silently pick another source.
+    try {
+        sourceFromString("Webcam");
+        FAIL() << "expected std::invalid_argument";
+    } catch (const std::invalid_argument& e) {
+        const std::string message = e.what();
+        EXPECT_NE(message.find("'Webcam'"), std::string::npos) << message;
+        EXPECT_NE(message.find("VIDEO, WEBCAM"), std::string::npos) << message;
+    }
 }
 
 // resolveAgainst: relative asset paths are resolved against the config directory.
@@ -748,6 +754,34 @@ TEST(VideoHandlerWriter, WriteFailsWhenWriterCannotBeOpened) {
     EXPECT_FALSE(handler.write(frame));
 }
 
+TEST(VideoHandlerWriter, WriteFailsWithoutThrowingWhenExistingOutputCannotBeRemoved) {
+    // An existing output file in a read-only directory cannot be removed. That
+    // must surface as a failed write (main aborts with a message), not as an
+    // uncaught std::filesystem::filesystem_error that terminates the program.
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "objdet_readonly_output_dir";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    const std::filesystem::path output = dir / "out.avi";
+    std::ofstream(output) << "previous run";
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
+
+    bool written = true;
+    {
+        VideoHandler handler(output.string());
+        handler.fps = 30.0f;
+        cv::Mat frame(64, 64, CV_8UC3, cv::Scalar(0, 0, 0));
+        StreamCapture capture(std::cerr);
+        EXPECT_NO_THROW(written = handler.write(frame));
+        EXPECT_NE(capture.str().find("Could not remove existing output file"), std::string::npos)
+            << capture.str();
+    }
+    EXPECT_FALSE(written);
+
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_all);
+    std::filesystem::remove_all(dir);
+}
+
 // clippedRect: boxes are clamped to the frame but keep their full extent when
 // they touch or overhang the border (cv::Rect's br() is exclusive).
 
@@ -850,6 +884,13 @@ TEST(ConfigYaml, PrefersOutputSectionOverLegacyInputKey) {
         "output:\n  video_output_file: \"from_output.mp4\"\n");
     EXPECT_EQ(loadedOutputFileName(path), "from_output.mp4");
 }
+TEST(ConfigYaml, UnknownSourceAbortsLoading) {
+    const std::string path = writeTempConfig(
+        "objdet_test_unknown_source.yaml",
+        "input:\n  source: \"CAMERA\"\n");
+    EXPECT_THROW(loadConfigYAML(path), std::invalid_argument);
+}
+
 TEST(ConfigYaml, UnknownFrameworkAbortsLoading) {
     const std::string path = writeTempConfig(
         "objdet_test_unknown_framework.yaml",

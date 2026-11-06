@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -17,21 +18,6 @@ struct WriterCandidate {
     int fourcc;
     const char* label;
 };
-
-namespace {
-// Preferred OpenCV video capture backend. On Apple platforms the FFmpeg-backed
-// capture backend has proven unstable here (SIGSEGV inside
-// CvCapture_FFmpeg::get_rotation_angle during VideoCapture::open, reproducible
-// with the Homebrew/MacPorts OpenCV builds), so prefer the native AVFoundation
-// backend. Other platforms keep OpenCV's automatic backend selection.
-int preferredCaptureBackend() {
-#if defined(__APPLE__)
-    return static_cast<int>(cv::CAP_AVFOUNDATION);
-#else
-    return static_cast<int>(cv::CAP_ANY);
-#endif
-}
-}
 
 std::string lowercaseExtension(const std::string& path) {
     std::string ext = std::filesystem::path(path).extension().string();
@@ -108,7 +94,7 @@ VideoHandler::~VideoHandler(){
 
 bool VideoHandler::open_file(const std::string &input_path) {
     // Implementation to open video file
-    cap_.open(input_path, preferredCaptureBackend());
+    cap_.open(input_path, VideoHandler::preferredCaptureBackend());
     if (!cap_.isOpened()) {
         std::cerr << "Error: Could not open video file: " << input_path << std::endl;
         return false;
@@ -121,7 +107,7 @@ bool VideoHandler::open_file(const std::string &input_path) {
 
 bool VideoHandler::open_webcam(const int &camera_index) {
     // Implementation to open webcam
-    cap_.open(camera_index, preferredCaptureBackend());
+    cap_.open(camera_index, VideoHandler::preferredCaptureBackend());
     if (!cap_.isOpened()) {
         std::cerr << "Error: Could not open webcam with index: " << camera_index << std::endl;
         return false;
@@ -133,13 +119,21 @@ bool VideoHandler::open_webcam(const int &camera_index) {
 
 bool VideoHandler::openWriter(const cv::Size &output_size) {
     for (const auto& candidate : writerCandidates(output_path_)) {
-        if (candidate.path == output_path_ && std::filesystem::exists(candidate.path)) {
-            if (std::filesystem::is_symlink(candidate.path)) {
+        // Use the error_code overloads: the throwing ones would escape as an
+        // uncaught std::filesystem::filesystem_error (e.g. permission denied on a
+        // read-only directory) and terminate the program instead of failing cleanly.
+        std::error_code ec;
+        if (candidate.path == output_path_ && std::filesystem::exists(candidate.path, ec)) {
+            if (std::filesystem::is_symlink(candidate.path, ec)) {
                 std::cerr << "Error: output path is a symlink, refusing to overwrite: "
                           << candidate.path << std::endl;
                 return false;
             }
-            std::filesystem::remove(candidate.path);
+            if (!std::filesystem::remove(candidate.path, ec) || ec) {
+                std::cerr << "Error: Could not remove existing output file " << candidate.path
+                          << ": " << (ec ? ec.message() : std::string("not removed")) << std::endl;
+                return false;
+            }
             std::cout << "Removed existing file: " << candidate.path << std::endl;
         }
 
