@@ -1,20 +1,34 @@
 # Sample runtime configuration. Copy to config.yaml and adjust as needed.
 # Loaded at startup when the project is built with yaml-cpp (ENABLE_YAML_CONFIG).
 # Any missing key falls back to the built-in defaults, so a partial file is fine.
+# Relative paths are resolved against the directory of this file.
 
 detection:
   score_threshold: 0.4
   nms_threshold: 0.65
 
 model:
-  model_file: "nanodet_repvgg_a12_hailo10h.hef"
+  # The model format is detected from the file name (yolo12 / yolo26 / yoloe),
+  # so keep that substring when renaming a model.
+  model_file: "yolo26m.onnx"
   class_names_file: "coco.txt"
+  # Must match the model's input size (the backends reject a mismatch).
   model_width: 640
   model_height: 640
 
 backend:
-  framework: "Hailo"         # OpenCV | OpenVINO | ONNXRuntime | CoreAI | Hailo
-  use_cuda: false
+  # OpenCV | OpenVINO | ONNXRuntime | CoreAI | Hailo (case-sensitive; an unknown
+  # name aborts at startup). Only backends compiled into this binary are usable:
+  # OpenVINO needs an Intel CPU, CoreAI Apple Silicon with macOS 27 / Xcode 27,
+  # Hailo a Raspberry Pi with HailoRT. OpenCV DNN cannot run YOLO26 models.
+  framework: "ONNXRuntime"
+  use_cuda: false            # OpenCV backend only
+
+  # Apple Silicon with Core AI (falls back to ONNX Runtime with yolo26m.onnx
+  # when the backend is unavailable):
+  #   framework: "CoreAI"      with model_file: "yolo26m.aimodel"
+  # Raspberry Pi with a Hailo accelerator:
+  #   framework: "Hailo"       with model_file: "<model>.hef"
 
 input:
   source: "VIDEO"            # WEBCAM | VIDEO
