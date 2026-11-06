@@ -491,7 +491,7 @@ via the shared decoders.
 | `yolo12m.onnx`    | OpenCV DNN, ONNX Runtime, OpenVINO | Standard YOLO output (NMS required) |
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
-| `*.hef`           | Hailo                               | HailoRT model; raw YOLO26 HEFs require `yolo26m_postprocess.onnx` |
+| `*.hef`           | Hailo                               | HailoRT model; raw YOLO26 HEFs require `yolo26m_postprocess.onnx` in the same directory as the HEF |
 | `yolo26m.aimodel` | Core AI                            | Apple Silicon, macOS 27.0+ / Xcode 27; built automatically when the toolchain supports it, YOLO26 export via Core AI (end-to-end or raw-head, dispatched by output shape) |
 
 > **Note:** YOLOE class labels must match the classes used by `export.py`.
@@ -604,7 +604,20 @@ ObjectDetection/
   end-to-end YOLO26 graph, so `main()` does not offer the OpenCV backend for
   YOLO26 models. Use the ONNX Runtime or OpenVINO backend instead.
 - **Raw Hailo YOLO26**: The raw-output postprocess path currently targets
-  YOLO26m and expects `yolo26m_postprocess.onnx` in the project root.
+  YOLO26m and expects `yolo26m_postprocess.onnx` in the same directory as the
+  `.hef` file (the HEF path is resolved against the config directory, so the
+  binary can be started from any working directory). The postprocess model is
+  the decode part of the Ultralytics end-to-end export, cut at the six
+  `one2one_cv2/cv3` head convolutions that the HEF outputs:
+  ```bash
+  yolo export model=yolo26m.pt format=onnx imgsz=640 opset=17 end2end=True
+  python3 - <<'PY'
+  import onnx, onnx.shape_inference, onnx.utils
+  onnx.save(onnx.shape_inference.infer_shapes(onnx.load("yolo26m.onnx")), "yolo26m_inferred.onnx")
+  heads = [f"/model.23/one2one_cv{a}.{i}/one2one_cv{a}.{i}.2/Conv_output_0" for i in range(3) for a in (2, 3)]
+  onnx.utils.extract_model("yolo26m_inferred.onnx", "yolo26m_postprocess.onnx", heads, ["output0"])
+  PY
+  ```
 - **CI coverage of optional backends** *(deferred, YAGNI)*: CI builds only the
   OpenCV-based configurations. The ONNX Runtime backend expects a local install
   under `onnxruntime/`, which does not exist on the CI runners, so
