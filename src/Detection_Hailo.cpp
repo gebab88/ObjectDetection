@@ -1,4 +1,5 @@
 #include "Detection_Hailo.hpp"
+#include "HailoMessages.hpp"
 #include "HailoOutput.hpp"
 #include <algorithm>
 #include <chrono>
@@ -20,6 +21,26 @@ std::string hailoError(const std::string &what, hailo_status status) {
          + " (" + std::to_string(status) + ")";
 }
 
+// Explains HAILO_HEF_NOT_COMPATIBLE_WITH_DEVICE: which chips the HEF is
+// compiled for, which chip is connected and where to get a matching HEF.
+std::string incompatibleHefError(hailort::VDevice &vdevice, const std::string &hef_file) {
+    std::vector<std::string> hef_archs;
+    if (auto hef = hailort::Hef::create(hef_file)) {
+        if (auto archs = hef->get_compatible_device_archs()) {
+            for (const auto arch : archs.value()) {
+                hef_archs.push_back(hailort::HailoRTCommon::get_device_arch_str(arch));
+            }
+        }
+    }
+    std::string device_arch;
+    if (auto devices = vdevice.get_physical_devices(); devices && !devices->empty()) {
+        if (auto arch = devices->front().get().get_architecture()) {
+            device_arch = hailort::HailoRTCommon::get_device_arch_str(arch.value());
+        }
+    }
+    return hailo_messages::incompatibleHef(hef_file, hef_archs, device_arch);
+}
+
 }  // namespace
 
 Detection_Hailo::Detection_Hailo(float score_threshold,
@@ -38,6 +59,9 @@ Detection_Hailo::Detection_Hailo(float score_threshold,
     // ── InferModel from HEF ───────────────────────────────────────────────────
     auto infer_model_exp = vdevice_->create_infer_model(model_file_);
     if (!infer_model_exp) {
+        if (infer_model_exp.status() == HAILO_HEF_NOT_COMPATIBLE_WITH_DEVICE) {
+            throw std::runtime_error(incompatibleHefError(*vdevice_, model_file_));
+        }
         throw std::runtime_error(hailoError("create_infer_model", infer_model_exp.status()));
     }
     auto infer_model = infer_model_exp.release();
@@ -77,6 +101,9 @@ Detection_Hailo::Detection_Hailo(float score_threshold,
     // ── Configure ─────────────────────────────────────────────────────────────
     auto configured_exp = infer_model->configure();
     if (!configured_exp) {
+        if (configured_exp.status() == HAILO_HEF_NOT_COMPATIBLE_WITH_DEVICE) {
+            throw std::runtime_error(incompatibleHefError(*vdevice_, model_file_));
+        }
         throw std::runtime_error(hailoError("configure", configured_exp.status()));
     }
     configured_model_ = configured_exp.release();
