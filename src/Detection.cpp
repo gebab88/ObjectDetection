@@ -1,4 +1,5 @@
 #include "Detection.hpp"
+#include "ClassNames.hpp"
 
 #include <iostream>
 
@@ -23,12 +24,7 @@ bool Detection::load_class_list(const std::string &class_file) {
         return false;
     }
 
-    std::string line;
-    while ( getline(ifs, line) ) {
-        if (!line.empty()) {
-            class_list_.push_back(line);
-        }
-    }
+    class_list_ = parseClassNames(ifs);
 
     if (class_list_.empty()) {
         std::cerr << "Class names file is empty: " << class_file << std::endl;

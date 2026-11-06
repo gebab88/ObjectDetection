@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Framework.hpp"
+#include "ClassNames.hpp"
 #include "YoloPostprocess.hpp"
 #include "FrameCrop.hpp"
 #include "config_loader.hpp"
@@ -415,6 +416,26 @@ TEST(ConfigParsing, SourceFromStringRejectsUnknownNames) {
         EXPECT_NE(message.find("'Webcam'"), std::string::npos) << message;
         EXPECT_NE(message.find("VIDEO, WEBCAM"), std::string::npos) << message;
     }
+}
+
+// Class names files: one name per line, the same format export.py reads.
+
+TEST(ClassNames, SkipsCommentsAndBlankLinesAndTrimsWhitespace) {
+    std::istringstream input(
+        "# COCO subset, edited by hand\n"
+        "person\r\n"
+        "\n"
+        "  traffic light  \n"
+        "   # indented comment\n"
+        "\t\n"
+        "dog");
+    EXPECT_EQ(parseClassNames(input),
+              (std::vector<std::string>{"person", "traffic light", "dog"}));
+}
+
+TEST(ClassNames, KeepsHashInsideAName) {
+    std::istringstream input("c# sharp\nperson\n");
+    EXPECT_EQ(parseClassNames(input), (std::vector<std::string>{"c# sharp", "person"}));
 }
 
 // resolveAgainst: relative asset paths are resolved against the config directory.

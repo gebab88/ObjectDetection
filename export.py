@@ -18,6 +18,20 @@ def write_classes(path: Path, classes: list[str]) -> None:
     path.write_text("\n".join(classes) + "\n", encoding="utf-8")
 
 
+def write_runtime_classes(source: Path, target: Path, classes: list[str]) -> bool:
+    """Write the class list for the C++ runtime.
+
+    Returns False without writing when target is the source file itself: the
+    runtime reads that file directly (like read_classes it skips comments and
+    blank lines), so rewriting it would only strip the user's comments.
+    """
+    if target.exists() and target.resolve() == source.resolve():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_classes(target, classes)
+    return True
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export a YOLOE ONNX model with a baked-in class vocabulary.")
     parser.add_argument("--weights", default="yoloe-11l-seg.pt",
@@ -27,7 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=Path("yoloe-11l-seg.onnx"),
                         help="Output ONNX file used by config.yaml.")
     parser.add_argument("--runtime-classes", type=Path, default=Path("yoloe_classes.txt"),
-                        help="Class names file used by the C++ runtime.")
+                        help="Class names file used by the C++ runtime. When it is the --classes "
+                             "file itself (the default), that file is left untouched.")
     parser.add_argument("--imgsz", type=int, default=640, help="Square export size.")
     parser.add_argument("--opset", type=int, default=17, help="ONNX opset version.")
     parser.add_argument("--nms", action="store_true",
@@ -48,15 +63,17 @@ def main() -> None:
     model.set_classes(classes, model.get_text_pe(classes))
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.runtime_classes.parent.mkdir(parents=True, exist_ok=True)
 
     exported = Path(model.export(format="onnx", imgsz=args.imgsz, opset=args.opset, nms=args.nms))
     if exported.resolve() != args.output.resolve():
         shutil.move(str(exported), args.output)
 
-    write_classes(args.runtime_classes, classes)
+    wrote_classes = write_runtime_classes(args.classes, args.runtime_classes, classes)
     print(f"Exported {args.output}")
-    print(f"Wrote runtime classes to {args.runtime_classes}")
+    if wrote_classes:
+        print(f"Wrote runtime classes to {args.runtime_classes}")
+    else:
+        print(f"Runtime uses {args.runtime_classes} as is (left unchanged)")
     print(f"Classes: {len(classes)}")
 
 
