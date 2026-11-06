@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <limits>
 #include <string>
+#include <system_error>
+#include <thread>
 #include <unordered_map>
 
 Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_file) {
@@ -26,12 +28,25 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
             coreml_options[kCoremlProviderOption_MLComputeUnits] = compute_units;
         }
     }
-    const std::string cache_dir = std::filesystem::absolute(".ort_coreml_cache").string();
-    std::filesystem::create_directories(cache_dir);
-    // Persist compiled CoreML artifacts in a project-local cache. We no longer
-    // override the process-wide TMPDIR; the CoreML EP uses the system temp dir
-    // for its intermediate compilation files, which is its normal behaviour.
-    coreml_options[kCoremlProviderOption_ModelCacheDirectory] = cache_dir;
+    // Persist compiled CoreML artifacts next to the model (not in the current
+    // working directory, which scattered caches across build/, the repo root,
+    // etc.), so every run of the same model reuses one cache wherever it starts.
+    // The CoreML EP still uses the system temp dir for intermediate compilation
+    // files. If the directory cannot be created (e.g. read-only model location),
+    // run without a persistent cache instead of failing.
+    std::error_code cache_ec;
+    const std::filesystem::path model_dir =
+        std::filesystem::absolute(std::filesystem::path(model_file), cache_ec).parent_path();
+    const std::string cache_dir = (model_dir / ".ort_coreml_cache").string();
+    if (!cache_ec) {
+        std::filesystem::create_directories(cache_dir, cache_ec);
+    }
+    if (cache_ec) {
+        std::cerr << "[Warning] CoreML model cache disabled: cannot create " << cache_dir
+                  << " (" << cache_ec.message() << ")." << std::endl;
+    } else {
+        coreml_options[kCoremlProviderOption_ModelCacheDirectory] = cache_dir;
+    }
 
     try {
         opts.AppendExecutionProvider("CoreML", coreml_options);
@@ -44,7 +59,9 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
                           ? coreml_options[kCoremlProviderOption_MLComputeUnits]
                           : "CoreML default/all available units")
                   << "." << std::endl;
-        std::cout << "[Provider] CoreML model cache: " << cache_dir << std::endl;
+        if (!cache_ec) {
+            std::cout << "[Provider] CoreML model cache: " << cache_dir << std::endl;
+        }
     } catch (const Ort::Exception& e) {
         std::cerr << "[Warning] CoreML Execution Provider could not be enabled: "
                   << e.what() << ". Falling back to CPU." << std::endl;
@@ -55,14 +72,11 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
 #endif
 
     if (!coreml_enabled) {
-        // CPU path, including the fallback when CoreML could not be enabled:
-        // use all cores and cache the optimized graph. The cache name derives
-        // from the model so switching models does not make ORT load a stale
-        // optimized graph produced for a different network.
+        // CPU path, including the fallback when CoreML could not be enabled: use
+        // all cores. (No SetOptimizedModelFilePath: it only *writes* the optimized
+        // graph for offline use; ONNX Runtime never loads it back, so it cost time
+        // on every start and left <model>.optimized.onnx in the working directory.)
         opts.SetIntraOpNumThreads(std::thread::hardware_concurrency());
-        const std::string optimized_path =
-            std::filesystem::path(model_file).filename().string() + ".optimized.onnx";
-        opts.SetOptimizedModelFilePath(optimized_path.c_str());
     }
 
     return opts;

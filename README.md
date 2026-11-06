@@ -292,8 +292,10 @@ backend:
 ```
 
 The CoreML Execution Provider uses the `MLProgram` model format and caches the
-compiled CoreML model in a local `.ort_coreml_cache/` directory, so the
-(slow) first-run compilation is reused on later runs.
+compiled CoreML model in a `.ort_coreml_cache/` directory next to the model
+file, so the (slow) first-run compilation is reused on later runs regardless of
+the working directory. If that directory cannot be created (e.g. a read-only
+model location), the program warns and runs without a persistent cache.
 
 By default, CoreML is allowed to use **all** compute units — CPU, GPU and the
 Apple Neural Engine (ANE) — and picks where to run each operator itself. You can
@@ -318,7 +320,7 @@ which backend is compiled in and selected:
 
 - **ONNX Runtime + CoreML** (default-capable, see above): the CoreML Execution
   Provider targets the Neural Engine and caches compiled models in
-  `.ort_coreml_cache/`.
+  `.ort_coreml_cache/` next to the model file.
 - **Core AI** (built automatically when available, see [Core AI Backend](#core-ai-backend-apple-platforms)):
   Apple's newer **Core AI** framework (WWDC 2026, iOS 27.0+ / macOS 27.0+, Apple
   Silicon, Xcode 27) runs inference on the Neural Engine through the Swift interop
@@ -414,7 +416,9 @@ without it, this C++ application performs NMS after inference.
 
 ## Usage
 
-Place your model file (`.onnx`) and the class names file in the project directory, then run:
+Place your model file (`.onnx`) and the class names file in the project directory, then run
+(the class names file lists one name per line in class-id order; blank lines and
+lines starting with `#` are ignored):
 
 ```bash
 ./build/ObjectDetection                       # auto-find config.yaml (./ then ../)
