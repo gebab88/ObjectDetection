@@ -13,6 +13,7 @@
 #include "Source.hpp"
 #include "Timer.hpp"
 #include "Detection.hpp"
+#include "DetectionPipeline.hpp"
 #include "DetectorFactory.hpp"
 
 volatile sig_atomic_t keep_running = 1;
@@ -112,27 +113,24 @@ int main(int argc, char** argv) {
     double steady_seconds = 0.0;
     long frames_processed = 0;
 
-    cv::Mat frame;
     signal(SIGINT, signalHandler);
     frame_timer.start();
-    while (keep_running && video.read(frame)) {
+    // Backends that can work on several frames at once (Hailo) get the next
+    // frames while earlier ones are still being detected; frames are still
+    // shown and written in reading order.
+    const auto read = [&](cv::Mat& frame) {
+        if (!keep_running || !video.read(frame)) return false;
         video.crop_frame(frame);
-        try {
-            detection->detect(frame);
-        } catch (const std::exception& e) {
-            // Backends throw when inference itself fails (e.g. Core AI rejecting
-            // the input, ONNX Runtime shape errors). Such failures repeat on every
-            // frame, so abort instead of writing a video without detections.
-            std::cerr << "Aborting: detection failed: " << e.what() << std::endl;
-            return 1;
-        }
+        return true;
+    };
+    const auto deliver = [&](cv::Mat& frame) {
         if (cfg.show_frames) {
             video.showFrame("Object Detector", frame);
         }
         // The writer opens on the first frame, sized to the cropped frames.
         if (!video.write(frame)) {
             std::cerr << "Aborting: could not open or write the output video." << std::endl;
-            return 1;
+            return false;
         }
 
         frame_timer.stop();
@@ -143,6 +141,18 @@ int main(int argc, char** argv) {
         }
         ++frames_processed;
         frame_timer.start();
+        return true;
+    };
+    try {
+        if (!detection_pipeline::run(*detection, read, deliver)) {
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        // Backends throw when inference itself fails (e.g. Core AI rejecting
+        // the input, ONNX Runtime shape errors). Such failures repeat on every
+        // frame, so abort instead of writing a video without detections.
+        std::cerr << "Aborting: detection failed: " << e.what() << std::endl;
+        return 1;
     }
 
     if (!keep_running) {

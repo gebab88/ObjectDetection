@@ -6,6 +6,7 @@
 #include <string>
 #include <fstream>
 #include <filesystem>
+#include <future>
 
 #include "Framework.hpp"
 
@@ -19,6 +20,15 @@ class Detection{
 
         bool load_class_list(const std::string &class_file);
         virtual void detect(cv::Mat &frame) = 0;
+
+        // Frames the backend can work on at the same time (see detect_async).
+        virtual std::size_t max_frames_in_flight() const { return 1; }
+
+        // Starts detecting objects in frame and drawing them into it. The
+        // future becomes ready when the frame is done (and rethrows detection
+        // errors); until then the frame must not be touched. The default runs
+        // detect() right away.
+        virtual std::future<void> detect_async(cv::Mat frame);
 
     protected:
         std::string model_file_;

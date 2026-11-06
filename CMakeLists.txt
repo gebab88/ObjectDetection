@@ -138,6 +138,7 @@ set(COMMON_SOURCES
     src/Tracker.cpp
     src/Timer.cpp
     src/Detection.cpp
+    src/DetectionPipeline.cpp
     src/Detection_OpenCV.cpp
     src/DetectorFactory.cpp
 )
@@ -469,7 +470,10 @@ if(BUILD_TESTING)
     endif()
 
     if(TARGET GTest::gtest_main)
-        add_executable(tests_runner tests/test_framework.cpp src/VideoHandler.cpp)
+        add_executable(tests_runner tests/test_framework.cpp
+                                    tests/test_detection_pipeline.cpp
+                                    src/VideoHandler.cpp
+                                    src/Detection.cpp src/DetectionPipeline.cpp)
         target_include_directories(tests_runner PRIVATE include)
         target_link_libraries(tests_runner PRIVATE GTest::gtest_main ${OpenCV_LIBS})
         if(HAILO_BACKEND_ENABLED)

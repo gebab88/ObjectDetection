@@ -15,6 +15,17 @@ Detection::Detection(
             model_shape_(model_shape) {
 }
 
+std::future<void> Detection::detect_async(cv::Mat frame) {
+    std::promise<void> done;
+    try {
+        detect(frame);
+        done.set_value();
+    } catch (...) {
+        done.set_exception(std::current_exception());
+    }
+    return done.get_future();
+}
+
 bool Detection::load_class_list(const std::string &class_file) {
     class_list_.clear();
 
