@@ -295,11 +295,19 @@ if(ENABLE_CORE_AI)
             message(STATUS "Core AI backend disabled: macOS SDK not found (xcrun --show-sdk-path failed).")
             set(SWIFTC_EXECUTABLE "")
         endif()
+        # Compile the Swift object for the same minimum macOS version as the C++ code;
+        # without -target swiftc defaults to the host OS version and the linker warns
+        # that the object was built for a newer macOS than the executable.
+        set(CORE_AI_SWIFT_TARGET_FLAGS)
+        if(CMAKE_OSX_DEPLOYMENT_TARGET)
+            set(CORE_AI_SWIFT_TARGET_FLAGS -target "arm64-apple-macos${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        endif()
         if(SWIFTC_EXECUTABLE)
             add_custom_command(
                 OUTPUT "${CMAKE_BINARY_DIR}/CoreAIInterop.o"
                 COMMAND "${SWIFTC_EXECUTABLE}"
                         -sdk "${CORE_AI_SWIFT_SDK}"
+                        ${CORE_AI_SWIFT_TARGET_FLAGS}
                         -swift-version 5
                         -parse-as-library
                         -emit-object
