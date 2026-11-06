@@ -26,6 +26,7 @@ src/.DS_Store
 .idea/
 *.mp4
 *.mov
+*.MOV
 previews/
 *.ninja*
 *.yaml
