@@ -31,6 +31,11 @@ struct CoreAITensor {
 //     the number of valid output values through *output_numel and the output
 //     dimensions through output_shape[0 .. rank-1] (rank included, e.g. {1, 84, 8400}
 //     for a raw YOLO26 head output; end-to-end outputs are {1, N, 6}).
+//   - output_rank: receives the rank of the output tensor. The Swift layer fails
+//     (nonzero) instead of writing past output_shape when the rank exceeds
+//     output_shape_capacity, and likewise when the values exceed output_capacity.
+// The output is always delivered as dense row-major float32: float16 outputs are
+// converted and strided (non-contiguous) layouts are gathered.
 // Returns 0 on success, nonzero on failure (including invalid input).
 extern "C" int coreAIInfer(const float* input_data,
                            int64_t input_numel,
@@ -41,7 +46,8 @@ extern "C" int coreAIInfer(const float* input_data,
                            int64_t output_capacity,
                            int64_t* output_numel,
                            int64_t* output_shape,
-                           int64_t output_shape_capacity);
+                           int64_t output_shape_capacity,
+                           int64_t* output_rank);
 
 class Detection_CoreAI : public Detection {
     public:

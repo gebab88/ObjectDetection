@@ -41,22 +41,35 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
     // *output_numel, so an oversized buffer is safe.
     std::vector<float> output_buffer(8400 * 84, 0.0f);
     int64_t output_numel = 0;
-    std::array<int64_t, 3> output_shape = {};
-    int64_t output_shape_capacity = static_cast<int64_t>(output_shape.size());
+    // Room for more dimensions than the decoder accepts, so an unexpected rank is
+    // still reported (and shown in the warning) instead of failing opaquely.
+    std::array<int64_t, 8> output_shape = {};
+    int64_t output_rank = 0;
     const int status = coreAIInfer(blob_.ptr<float>(), static_cast<int64_t>(blob_.total()),
                                    input_shape.data(), static_cast<int64_t>(input_shape.size()),
                                    model_file_.c_str(), output_buffer.data(),
                                    static_cast<int64_t>(output_buffer.size()),
-                                   &output_numel, output_shape.data(), output_shape_capacity);
+                                   &output_numel, output_shape.data(),
+                                   static_cast<int64_t>(output_shape.size()), &output_rank);
     if (status != 0 || output_numel <= 0) {
         yolo_postprocess::warnUnsupportedShape("CoreAI", {});
+        return;
+    }
+
+    // The shared decoders take a [1, dim1, dim2] tensor; require exactly rank 3
+    // with a matching element count rather than reading undefined dimensions.
+    const std::vector<int64_t> reported_shape(output_shape.begin(),
+                                              output_shape.begin() + output_rank);
+    if (output_rank != 3 ||
+        output_shape[0] * output_shape[1] * output_shape[2] != output_numel) {
+        yolo_postprocess::warnUnsupportedShape("CoreAI", reported_shape);
         return;
     }
 
     CoreAITensor output;
     output.data = output_buffer.data();
     output.numel = output_numel;
-    output.shape = {output_shape[0], output_shape[1], output_shape[2]};
+    output.shape = reported_shape;
 
     const float* const data = output.data;
     const int64_t dim1 = output.shape[1];

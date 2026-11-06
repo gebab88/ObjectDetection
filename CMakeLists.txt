@@ -272,16 +272,34 @@ if(ENABLE_CORE_AI)
         endif()
         # Swift interop layer implementing the `coreAIInfer` C entry point via
         # `@_cdecl("coreAIInfer")` against Apple's Core AI framework. The object file is
-        # compiled with the command line Swift toolchain and added to the executable.
+        # compiled with the Swift toolchain and added to the executable. swiftc is
+        # searched on the regular PATH (the /usr/bin/swiftc shim resolves to Xcode or
+        # the Command Line Tools) with the Command Line Tools location as a hint.
         find_program(SWIFTC_EXECUTABLE
             NAMES swiftc
-            PATHS /Library/Developer/CommandLineTools/usr/bin
-            NO_DEFAULT_PATH
+            HINTS /Library/Developer/CommandLineTools/usr/bin
         )
+        # Invoking swiftc by absolute path bypasses the xcrun shim that normally
+        # selects the SDK, so pass the macOS SDK explicitly (CMAKE_OSX_SYSROOT, or
+        # whatever xcrun reports when CMake left it empty).
+        set(CORE_AI_SWIFT_SDK "${CMAKE_OSX_SYSROOT}")
+        if(NOT CORE_AI_SWIFT_SDK)
+            execute_process(
+                COMMAND xcrun --sdk macosx --show-sdk-path
+                OUTPUT_VARIABLE CORE_AI_SWIFT_SDK
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+            )
+        endif()
+        if(SWIFTC_EXECUTABLE AND NOT CORE_AI_SWIFT_SDK)
+            message(STATUS "Core AI backend disabled: macOS SDK not found (xcrun --show-sdk-path failed).")
+            set(SWIFTC_EXECUTABLE "")
+        endif()
         if(SWIFTC_EXECUTABLE)
             add_custom_command(
                 OUTPUT "${CMAKE_BINARY_DIR}/CoreAIInterop.o"
-                COMMAND swiftc
+                COMMAND "${SWIFTC_EXECUTABLE}"
+                        -sdk "${CORE_AI_SWIFT_SDK}"
                         -swift-version 5
                         -parse-as-library
                         -emit-object
@@ -292,14 +310,18 @@ if(ENABLE_CORE_AI)
                 COMMENT "Compiling Swift Core AI interop layer (CoreAIInterop.o)"
                 VERBATIM
             )
+            # The C++ backend calls `coreAIInfer`, so it is only compiled (and
+            # HAVE_CORE_AI only defined) when the Swift object providing it is built;
+            # otherwise the link would fail on an undefined symbol.
             list(APPEND PLATFORM_SOURCES "${CMAKE_BINARY_DIR}/CoreAIInterop.o")
+            list(APPEND PLATFORM_SOURCES src/Detection_CoreAI.cpp)
+            list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_CORE_AI)
+            message(STATUS "Core AI backend enabled: Apple Silicon with macOS 27+ / Xcode 27.")
         else()
-            set(ENABLE_CORE_AI OFF CACHE BOOL "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" FORCE)
+            # Not forced into the cache, so installing swiftc and re-running CMake
+            # enables the backend again. CoreAI selections fall back to ONNX Runtime.
             message(STATUS "Core AI backend disabled: Swift compiler (swiftc) not found.")
         endif()
-        list(APPEND PLATFORM_SOURCES src/Detection_CoreAI.cpp)
-        list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_CORE_AI)
-        message(STATUS "Core AI backend enabled: Apple Silicon with macOS 27+ / Xcode 27.")
     else()
         set(ENABLE_CORE_AI OFF CACHE BOOL "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" FORCE)
         message(STATUS "Core AI backend disabled: requires Apple Silicon (macOS 27+ / Xcode 27).")

@@ -44,6 +44,68 @@ final class CoreAIState {
     }
 }
 
+// Copies an output tensor into a dense row-major float32 array. Core AI may hand
+// back float16 tensors and non-contiguous layouts (strides are in elements), so
+// both the scalar type and the strides are honoured instead of assuming packed
+// float32 data.
+private func denseFloats(from arr: NDArray) throws -> [Float] {
+    let shape = arr.shape
+    let rank = shape.count
+    let scalarType = arr.scalarType
+    guard scalarType == .float32 || scalarType == .float16 else {
+        throw NSError(domain: "CoreAI", code: 4, userInfo: [NSLocalizedDescriptionKey: "Core AI output scalar type \(scalarType) is not supported (expected float32 or float16)"])
+    }
+
+    var numel = 1
+    for v in shape { numel *= v }
+    guard numel > 0 else { return [] }
+
+    // Contiguous row-major strides, used when the tensor reports none.
+    var contiguous = [Int](repeating: 1, count: rank)
+    if rank > 1 {
+        for d in stride(from: rank - 2, through: 0, by: -1) {
+            contiguous[d] = contiguous[d + 1] * shape[d + 1]
+        }
+    }
+    let reported = arr.strides
+    guard reported.isEmpty || reported.count == rank else {
+        throw NSError(domain: "CoreAI", code: 5, userInfo: [NSLocalizedDescriptionKey: "Core AI output strides do not match the tensor rank"])
+    }
+    let strides = reported.isEmpty ? contiguous : reported
+
+    var floats = [Float](repeating: 0, count: numel)
+    let raw = arr.rawView()
+    raw.withUnsafeBytes { rawPtr, _, _ in
+        if scalarType == .float32 && strides == contiguous {
+            // Fast path: packed float32, copy in one go.
+            floats.withUnsafeMutableBytes { dst in
+                dst.baseAddress!.copyMemory(from: rawPtr, byteCount: numel * MemoryLayout<Float>.stride)
+            }
+            return
+        }
+        // General path: walk the logical indices in row-major order and gather
+        // each element through the strides.
+        var index = [Int](repeating: 0, count: rank)
+        for linear in 0..<numel {
+            var offset = 0
+            for d in 0..<rank { offset += index[d] * strides[d] }
+            if scalarType == .float32 {
+                floats[linear] = rawPtr.load(fromByteOffset: offset * MemoryLayout<Float>.stride, as: Float.self)
+            } else {
+                floats[linear] = Float(rawPtr.load(fromByteOffset: offset * MemoryLayout<Float16>.stride, as: Float16.self))
+            }
+            var d = rank - 1
+            while d >= 0 {
+                index[d] += 1
+                if index[d] < shape[d] { break }
+                index[d] = 0
+                d -= 1
+            }
+        }
+    }
+    return floats
+}
+
 @_cdecl("coreAIInfer")
 public func coreAIInfer(_ inputData: UnsafePointer<Float>,
                         _ inputNumel: Int64,
@@ -54,8 +116,9 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
                         _ outputCapacity: Int64,
                         _ outputNumel: UnsafeMutablePointer<Int64>,
                         _ outputShape: UnsafeMutablePointer<Int64>,
-                        _ outputShapeCapacity: Int64) -> Int {
-    guard inputNumel > 0, inputRank > 0, outputCapacity > 0 else {
+                        _ outputShapeCapacity: Int64,
+                        _ outputRank: UnsafeMutablePointer<Int64>) -> Int32 {
+    guard inputNumel > 0, inputRank > 0, outputCapacity > 0, outputShapeCapacity > 0 else {
         return -1
     }
 
@@ -89,29 +152,10 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
             let inputs: [String: NDArray] = ["images": inputNDArray]
             let outputs = try await function.run(inputs: inputs)
             var o = outputs
-            let name = o.names.first
-            guard let value = o.remove(name!) else { throw NSError(domain: "CoreAI", code: 2, userInfo: [NSLocalizedDescriptionKey: "Core AI inference returned no value"]) }
+            guard let name = o.names.first, let value = o.remove(name) else { throw NSError(domain: "CoreAI", code: 2, userInfo: [NSLocalizedDescriptionKey: "Core AI inference returned no value"]) }
             guard let arr = value.ndArray else { throw NSError(domain: "CoreAI", code: 3, userInfo: [NSLocalizedDescriptionKey: "Core AI inference output is not a tensor"]) }
-            let shape = arr.shape
-            var numel: Int64 = 1
-            for v in shape { numel = numel * Int64(v) }
-            var floats: [Float] = []
-            if numel > 0, numel <= Int64(outputCapacity) {
-                let raw = arr.rawView()
-                raw.withUnsafeBytes { rawPtr, shp, str in
-                    var acc: [Float] = []
-                    acc.reserveCapacity(Int(numel))
-                    var buf = rawPtr.assumingMemoryBound(to: Float.self)
-                    for _ in 0..<Int(numel) {
-                        acc.append(buf.pointee)
-                        buf = buf.advanced(by: 1)
-                    }
-                    floats = acc
-                    return
-                }
-            }
-            outcome = floats
-            outShape = shape.map { Int64($0) }
+            outcome = try denseFloats(from: arr)
+            outShape = arr.shape.map { Int64($0) }
         } catch {
             taskErr = error
         }
@@ -120,13 +164,17 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
     sem.wait()
     if taskErr != nil { return -1 }
     guard let floats = outcome else { return -1 }
-    guard floats.count <= Int(outputCapacity) else { return -1 }
-    for i in 0..<Int(floats.count) {
-        outputData[i] = floats[i]
+    // Fail closed instead of writing past the caller's buffers: the output values
+    // must fit into outputData and the dimensions into outputShape.
+    guard !floats.isEmpty, floats.count <= Int(outputCapacity) else { return -1 }
+    guard outShape.count <= Int(outputShapeCapacity) else { return -1 }
+    floats.withUnsafeBufferPointer { src in
+        outputData.update(from: src.baseAddress!, count: src.count)
     }
     outputNumel[0] = Int64(floats.count)
-    for i in 0..<Int(outShape.count) {
+    for i in 0..<outShape.count {
         outputShape[i] = outShape[i]
     }
+    outputRank[0] = Int64(outShape.count)
     return 0
 }
