@@ -264,17 +264,16 @@ endif()
 if(ENABLE_CORE_AI)
     if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
         # Apple's Core AI (WWDC 2026, iOS 27.0+ / macOS 27.0+, Xcode 27, Apple Silicon)
-        # is the successor inference runtime. It is opt-in and only compiled for Apple
-        # Silicon; the Swift interop layer provides the `coreAIInfer` C entry point and
-        # is compiled and linked into the C++ binary (see below).
-        if(CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 27.0)
-            set(CMAKE_OSX_DEPLOYMENT_TARGET 27.0 CACHE STRING "Minimum macOS version" FORCE)
-        endif()
-        # Swift interop layer implementing the `coreAIInfer` C entry point via
-        # `@_cdecl("coreAIInfer")` against Apple's Core AI framework. The object file is
-        # compiled with the Swift toolchain and added to the executable. swiftc is
-        # searched on the regular PATH (the /usr/bin/swiftc shim resolves to Xcode or
-        # the Command Line Tools) with the Command Line Tools location as a hint.
+        # is the successor inference runtime. The Swift interop layer provides the
+        # `coreAIInfer` C entry point and is compiled and linked into the C++ binary.
+        # Apple Silicon alone is not enough: the backend is only enabled when swiftc,
+        # a macOS SDK that ships CoreAI.framework and a macOS 27+ target are all
+        # available. Otherwise it is skipped (not forced off in the cache, so a later
+        # toolchain/OS upgrade enables it on the next configure) and CoreAI selections
+        # fall back to the ONNX Runtime backend at runtime.
+        #
+        # swiftc is searched on the regular PATH (the /usr/bin/swiftc shim resolves to
+        # Xcode or the Command Line Tools) with the Command Line Tools as a hint.
         find_program(SWIFTC_EXECUTABLE
             NAMES swiftc
             HINTS /Library/Developer/CommandLineTools/usr/bin
@@ -291,18 +290,45 @@ if(ENABLE_CORE_AI)
                 ERROR_QUIET
             )
         endif()
-        if(SWIFTC_EXECUTABLE AND NOT CORE_AI_SWIFT_SDK)
-            message(STATUS "Core AI backend disabled: macOS SDK not found (xcrun --show-sdk-path failed).")
-            set(SWIFTC_EXECUTABLE "")
+        execute_process(
+            COMMAND sw_vers -productVersion
+            OUTPUT_VARIABLE CORE_AI_HOST_MACOS_VERSION
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+
+        set(CORE_AI_UNAVAILABLE_REASON "")
+        if(NOT SWIFTC_EXECUTABLE)
+            set(CORE_AI_UNAVAILABLE_REASON "Swift compiler (swiftc) not found")
+        elseif(NOT CORE_AI_SWIFT_SDK)
+            set(CORE_AI_UNAVAILABLE_REASON "macOS SDK not found (xcrun --show-sdk-path failed)")
+        elseif(NOT EXISTS "${CORE_AI_SWIFT_SDK}/System/Library/Frameworks/CoreAI.framework")
+            # Older SDKs (Xcode 26 and earlier) have no CoreAI module, so compiling
+            # `import CoreAI` would fail with "no such module 'CoreAI'".
+            set(CORE_AI_UNAVAILABLE_REASON "the macOS SDK at ${CORE_AI_SWIFT_SDK} does not provide CoreAI.framework (Xcode 27+ required)")
+        elseif(CORE_AI_HOST_MACOS_VERSION VERSION_LESS 27.0 AND
+               NOT (CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_GREATER_EQUAL 27.0))
+            # Enabling Core AI raises the deployment target to macOS 27, which would
+            # produce binaries (and test runners) that cannot start on this older host.
+            # Set CMAKE_OSX_DEPLOYMENT_TARGET=27.0 explicitly to build for macOS 27 anyway.
+            set(CORE_AI_UNAVAILABLE_REASON "requires macOS 27+ (this host runs ${CORE_AI_HOST_MACOS_VERSION})")
         endif()
-        # Compile the Swift object for the same minimum macOS version as the C++ code;
-        # without -target swiftc defaults to the host OS version and the linker warns
-        # that the object was built for a newer macOS than the executable.
-        set(CORE_AI_SWIFT_TARGET_FLAGS)
-        if(CMAKE_OSX_DEPLOYMENT_TARGET)
-            set(CORE_AI_SWIFT_TARGET_FLAGS -target "arm64-apple-macos${CMAKE_OSX_DEPLOYMENT_TARGET}")
-        endif()
-        if(SWIFTC_EXECUTABLE)
+
+        if(CORE_AI_UNAVAILABLE_REASON)
+            message(STATUS "Core AI backend disabled: ${CORE_AI_UNAVAILABLE_REASON}.")
+        else()
+            # Core AI needs macOS 27; raise the deployment target only once the backend
+            # is actually built, so builds without it keep their original target.
+            if(CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 27.0)
+                set(CMAKE_OSX_DEPLOYMENT_TARGET 27.0 CACHE STRING "Minimum macOS version" FORCE)
+            endif()
+            # Compile the Swift object for the same minimum macOS version as the C++
+            # code; without -target swiftc defaults to the host OS version and the
+            # linker warns that the object was built for a newer macOS.
+            set(CORE_AI_SWIFT_TARGET_FLAGS)
+            if(CMAKE_OSX_DEPLOYMENT_TARGET)
+                set(CORE_AI_SWIFT_TARGET_FLAGS -target "arm64-apple-macos${CMAKE_OSX_DEPLOYMENT_TARGET}")
+            endif()
             add_custom_command(
                 OUTPUT "${CMAKE_BINARY_DIR}/CoreAIInterop.o"
                 COMMAND "${SWIFTC_EXECUTABLE}"
@@ -319,16 +345,12 @@ if(ENABLE_CORE_AI)
                 VERBATIM
             )
             # The C++ backend calls `coreAIInfer`, so it is only compiled (and
-            # HAVE_CORE_AI only defined) when the Swift object providing it is built;
+            # HAVE_CORE_AI only defined) together with the Swift object providing it;
             # otherwise the link would fail on an undefined symbol.
             list(APPEND PLATFORM_SOURCES "${CMAKE_BINARY_DIR}/CoreAIInterop.o")
             list(APPEND PLATFORM_SOURCES src/Detection_CoreAI.cpp)
             list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_CORE_AI)
-            message(STATUS "Core AI backend enabled: Apple Silicon with macOS 27+ / Xcode 27.")
-        else()
-            # Not forced into the cache, so installing swiftc and re-running CMake
-            # enables the backend again. CoreAI selections fall back to ONNX Runtime.
-            message(STATUS "Core AI backend disabled: Swift compiler (swiftc) not found.")
+            message(STATUS "Core AI backend enabled: Apple Silicon, macOS ${CORE_AI_HOST_MACOS_VERSION}, SDK ${CORE_AI_SWIFT_SDK}.")
         endif()
     else()
         set(ENABLE_CORE_AI OFF CACHE BOOL "Build the Apple Core AI inference backend when Apple Silicon and the Core AI runtime are available" FORCE)

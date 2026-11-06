@@ -69,15 +69,10 @@ jobs:
             cmake_flags: >-
               -DFETCH_GTEST=ON
 
-          - name: macos-coreai
-            os: macos-27
-            deps: macos
-            cmake_flags: >-
-              -DENABLE_ONNX_RUNTIME=OFF
-              -DENABLE_OPENVINO=OFF
-              -DENABLE_YAML_CONFIG=OFF
-              -DENABLE_CORE_AI=ON
-              -DFETCH_GTEST=ON
+          # No Core AI job: GitHub-hosted runners have no macOS 27 / Xcode 27 image
+          # yet (a `macos-27` job stays queued forever). The macOS jobs above build
+          # with ENABLE_CORE_AI at its default (ON); CMake skips the backend when the
+          # runner's SDK lacks CoreAI.framework, which keeps that path covered.
 
     steps:
       - name: Check out repository

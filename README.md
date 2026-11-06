@@ -8,7 +8,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 - **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime, OpenVINO, Hailo and Core AI via `config.yaml` (a detector factory validates the choice against the model format)
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
-- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux), HailoRT and Core AI (Apple Neural Engine, macOS 27+, opt-in)
+- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux), HailoRT and Core AI (Apple Neural Engine, macOS 27+ / Xcode 27, built automatically when available)
 - **YOLO / HEF Support**: YOLOE open-vocabulary exports, YOLO v12 raw output, YOLO v26 end-to-end or raw output and Hailo HEF models
 - **Video Output**: Processed frames with bounding boxes are written to the configured output file
 - **Performance Timing**: Built-in high-resolution timer for total execution time
@@ -19,7 +19,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 | Platform              | OpenCV DNN | ONNX Runtime | OpenVINO | Hailo | Core AI |
 |-----------------------|:----------:|:------------:|:--------:|:-----:|:------:|
-| macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled | ❌ | ✅ (opt-in, macOS 27.0+) |
+| macOS (Apple Silicon) | ✅          | ✅ / CoreML   | ❌ auto-disabled | ❌ | ✅ (auto, macOS 27.0+ / Xcode 27) |
 | macOS (Intel)         | ✅          | ✅            | ✅ when installed | ❌ | ❌ |
 | Linux (Intel x86_64)  | ✅          | ✅            | ✅ when installed | ❌ | ❌ |
 | Linux (aarch64)       | ✅          | ✅ / XNNPACK  | ❌ auto-disabled | ✅ Raspberry Pi only, when installed | ❌ |
@@ -43,8 +43,9 @@ through the Linux device tree. For cross-compilation, set
 Other targets disable Hailo, including its shared HEF/backend enum entries.
 Use `-DENABLE_HAILO=OFF` to omit it on a Raspberry Pi as well.
 
-Core AI support is compiled only when CMake enables `-DENABLE_CORE_AI=ON` on an
-Apple Silicon build; other platforms and CPU architectures disable it automatically.
+Core AI support (`ENABLE_CORE_AI`, default ON) is compiled only on Apple Silicon
+when `swiftc`, a macOS SDK that ships `CoreAI.framework` (Xcode 27+) and macOS 27+
+are available; otherwise CMake skips it with a status message explaining why.
 
 ### Install OpenCV (macOS)
 
@@ -183,22 +184,30 @@ cmake .. \
 
 ### Core AI Backend (Apple platforms)
 
-The optional Core AI backend (Apple's on-device inference framework for Apple
-Silicon, iOS 27.0+ / macOS 27.0+, Xcode 27) can be compiled into the binary on
-macOS. Configure and build with:
+The Core AI backend (Apple's on-device inference framework for Apple Silicon,
+iOS 27.0+ / macOS 27.0+, Xcode 27) is compiled into the binary automatically when
+the toolchain supports it. A regular build is enough:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_CORE_AI=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-- `-DENABLE_CORE_AI=ON` compiles the Core AI backend (`src/Detection_CoreAI.cpp`) and
-  defines the `HAVE_CORE_AI` backend switch. It is only available on Apple Silicon and
-  is disabled automatically on other platforms or CPU architectures; an Apple build
-  that enables it raises the macOS deployment target to 27.0 (Core AI requires
-  macOS 27.0+ / Xcode 27).
-- Without the flag, the Core AI backend is not compiled in and the existing backends
-  keep their default behaviour, so current builds are unaffected.
+- `ENABLE_CORE_AI` defaults to ON. CMake then compiles the Swift interop layer
+  (`swift/CoreAIInterop.swift`) and the backend (`src/Detection_CoreAI.cpp`) and
+  defines `HAVE_CORE_AI`, but only when all of these hold:
+  - Apple Silicon (other platforms and CPU architectures disable it automatically),
+  - `swiftc` is found,
+  - the macOS SDK provides `CoreAI.framework` (Xcode 27+; older SDKs would fail
+    with `no such module 'CoreAI'`),
+  - the host runs macOS 27+, or `CMAKE_OSX_DEPLOYMENT_TARGET` is set to 27.0+
+    explicitly (to build macOS 27 binaries on an older host).
+- When a requirement is missing, the configure step prints
+  `Core AI backend disabled: <reason>` and the build continues without it. The
+  setting is not forced off, so the backend is picked up on the next configure
+  once the toolchain or OS is upgraded.
+- A build that includes the backend raises the macOS deployment target to 27.0.
+- Pass `-DENABLE_CORE_AI=OFF` to leave the backend out explicitly.
 - To select the backend at runtime, set the framework in the `backend:` section of
   `config.yaml`:
 
@@ -258,7 +267,10 @@ CI runs the following build-and-test matrix via GitHub Actions:
 | `macos-minimal` | macOS | OpenCV-only build without optional backends or YAML |
 | `macos-yaml` | macOS | YAML config enabled, optional inference backends disabled |
 | `macos-default-discovery` | macOS | Default optional backend discovery with YAML available |
-| `macos-coreai` | macOS 27 (Xcode 27) | Core AI backend build enabled (`-DENABLE_CORE_AI=ON`) on Apple Silicon |
+
+There is no Core AI job yet: GitHub-hosted runners do not offer a macOS 27 / Xcode 27
+image. The macOS jobs build with `ENABLE_CORE_AI` at its default, so they verify that
+CMake skips the backend cleanly when the SDK lacks `CoreAI.framework`.
 
 ### Apple Neural Engine / NPU
 
@@ -307,7 +319,7 @@ which backend is compiled in and selected:
 - **ONNX Runtime + CoreML** (default-capable, see above): the CoreML Execution
   Provider targets the Neural Engine and caches compiled models in
   `.ort_coreml_cache/`.
-- **Core AI** (opt-in, see [Core AI Backend](#core-ai-backend-apple-platforms)):
+- **Core AI** (built automatically when available, see [Core AI Backend](#core-ai-backend-apple-platforms)):
   Apple's newer **Core AI** framework (WWDC 2026, iOS 27.0+ / macOS 27.0+, Apple
   Silicon, Xcode 27) runs inference on the Neural Engine through the Swift interop
   layer (`AIModel` / `InferenceFunction` / `InferenceValue`, ahead-of-time
@@ -315,9 +327,8 @@ which backend is compiled in and selected:
   ONNX Runtime / CoreML path remains the default and stays available for older
   targets and platforms.
 
-Until the Swift interop layer is linked into the C++ binary, the compiled Core AI
-backend fails closed during initialisation and the application falls back to the
-ONNX Runtime backend.
+When the Core AI backend is not compiled in (see the requirements above) or fails
+during initialisation, the application falls back to the ONNX Runtime backend.
 
 ---
 
@@ -371,8 +382,8 @@ backend:
 
 The framework name is validated against the compiled backend set at startup and
 the factory reports a clear error when the chosen backend cannot handle the model
-format. On Apple Silicon the Core AI backend must be compiled in first via
-`-DENABLE_CORE_AI=ON` (see [Core AI Backend](#core-ai-backend-apple-platforms));
+format. On Apple Silicon the Core AI backend is compiled in automatically when the
+toolchain supports it (see [Core AI Backend](#core-ai-backend-apple-platforms));
 when it is not compiled in or fails during initialisation, the factory falls back
 to the ONNX Runtime backend automatically.
 
@@ -441,7 +452,7 @@ via the shared decoders.
 | `yolo26m.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, NMS built-in     |
 | `yolo26x.onnx`    | ONNX Runtime, OpenVINO, no OpenCV DNN | End-to-end, larger variant, NMS built-in     |
 | `*.hef`           | Hailo                               | HailoRT model; raw YOLO26 HEFs require `yolo26m_postprocess.onnx` |
-| `yolo26m.aimodel` | Core AI                            | Apple Silicon, macOS 27.0+ / Xcode 27; opt-in via `-DENABLE_CORE_AI=ON`, YOLO26 export via Core AI (end-to-end or raw-head, dispatched by output shape) |
+| `yolo26m.aimodel` | Core AI                            | Apple Silicon, macOS 27.0+ / Xcode 27; built automatically when the toolchain supports it, YOLO26 export via Core AI (end-to-end or raw-head, dispatched by output shape) |
 
 > **Note:** YOLOE class labels must match the classes used by `export.py`.
 
