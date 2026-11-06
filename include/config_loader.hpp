@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 #include <iostream>
+#include <stdexcept>
 #include <opencv2/core.hpp>
 
 #include "Framework.hpp"
@@ -43,6 +44,10 @@ struct Config {
 };
 
 // ─── Helper: string → FRAMEWORK ──────────────────────────────────────────────
+// Maps the `backend.framework` string from config.yaml to the enum. An unknown
+// name throws std::invalid_argument instead of silently picking another backend:
+// a typo used to fall back to OpenCV and then fail later with a confusing
+// model-format error.
 inline FRAMEWORK frameworkFromString(const std::string& s) {
     if (s == "OpenCV")      return FRAMEWORK::OpenCV;
     if (s == "OpenVINO")    return FRAMEWORK::OpenVINO;
@@ -50,9 +55,16 @@ inline FRAMEWORK frameworkFromString(const std::string& s) {
     if (s == "CoreAI")      return FRAMEWORK::CoreAI;
 #ifdef HAVE_HAILO
     if (s == "Hailo")       return FRAMEWORK::Hailo;
+    const std::string valid = "OpenCV, OpenVINO, ONNXRuntime, CoreAI, Hailo";
+#else
+    if (s == "Hailo") {
+        throw std::invalid_argument(
+            "Backend framework 'Hailo' is only available in Raspberry Pi builds with HailoRT.");
+    }
+    const std::string valid = "OpenCV, OpenVINO, ONNXRuntime, CoreAI";
 #endif
-    std::cerr << "Unknown framework: " << s << " – falling back to OpenCV." << std::endl;
-    return FRAMEWORK::OpenCV;
+    throw std::invalid_argument("Unknown backend framework '" + s +
+                                "' (names are case-sensitive). Valid values: " + valid + ".");
 }
 
 // ─── Helper: string → SOURCE ──────────────────────────────────────────────
@@ -157,6 +169,9 @@ inline Config loadConfigYAML(const std::string& path) {
                 y["model"]["model_width"].as<int>(static_cast<int>(cfg.model_shape.width)),
                 y["model"]["model_height"].as<int>(static_cast<int>(cfg.model_shape.height)));
 
+            // frameworkFromString throws std::invalid_argument for an unknown name;
+            // that is deliberately not caught here, so loading aborts instead of
+            // running a different backend than the one requested.
             if (y["backend"]["framework"])
                 cfg.framework     = frameworkFromString(y["backend"]["framework"].as<std::string>());
             cfg.use_cuda          = y["backend"]["use_cuda"].as<bool>(cfg.use_cuda);

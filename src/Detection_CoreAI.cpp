@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
@@ -34,27 +35,50 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
 
     std::array<int64_t, 4> input_shape = {1, 3, static_cast<int64_t>(H), static_cast<int64_t>(W)};
 
-    // The Swift interop layer reports a single-output raw tensor. A raw YOLO26 head
-    // output is (1, 84, 8400) values and an end-to-end (built-in NMS) output is
-    // (1, N, 6); both fit into the raw-capacity buffer below (the backend is YOLO26
-    // family), and the Swift layer reports the actual number of valid values through
-    // *output_numel, so an oversized buffer is safe.
-    std::vector<float> output_buffer(8400 * 84, 0.0f);
+    // Initial output capacity: a raw YOLO head at this input size, i.e. one anchor
+    // per cell of the stride-8/16/32 grids times (4 box + class) fields, which is
+    // 8400 * 84 for 640x640 and 80 classes. End-to-end outputs (1, N, 6) are far
+    // smaller. Anything larger (more classes, extra fields) is handled by the
+    // grow-and-retry below, so this is only a starting point.
+    if (output_buffer_.empty()) {
+        int64_t anchors = 0;
+        for (const int stride : {8, 16, 32}) {
+            anchors += static_cast<int64_t>((H + stride - 1) / stride) * ((W + stride - 1) / stride);
+        }
+        const int64_t fields = 4 + std::max<int64_t>(static_cast<int64_t>(class_list_.size()), 80);
+        output_buffer_.resize(static_cast<size_t>(anchors * fields));
+    }
+
     int64_t output_numel = 0;
     // Room for more dimensions than the decoder accepts, so an unexpected rank is
     // still reported (and shown in the warning) instead of failing opaquely.
     std::array<int64_t, 8> output_shape = {};
     int64_t output_rank = 0;
-    const int status = coreAIInfer(blob_.ptr<float>(), static_cast<int64_t>(blob_.total()),
-                                   input_shape.data(), static_cast<int64_t>(input_shape.size()),
-                                   model_file_.c_str(), output_buffer.data(),
-                                   static_cast<int64_t>(output_buffer.size()),
-                                   &output_numel, output_shape.data(),
-                                   static_cast<int64_t>(output_shape.size()), &output_rank);
-    if (status != 0 || output_numel <= 0) {
-        // The Swift layer already reported the reason on stderr (once per distinct
-        // message); there is no output shape to warn about here.
-        return;
+    const auto infer = [&]() {
+        return coreAIInfer(blob_.ptr<float>(), static_cast<int64_t>(blob_.total()),
+                           input_shape.data(), static_cast<int64_t>(input_shape.size()),
+                           model_file_.c_str(), output_buffer_.data(),
+                           static_cast<int64_t>(output_buffer_.size()),
+                           &output_numel, output_shape.data(),
+                           static_cast<int64_t>(output_shape.size()), &output_rank);
+    };
+    int status = infer();
+    if (status == kStatusBufferTooSmall &&
+        output_numel > static_cast<int64_t>(output_buffer_.size())) {
+        // The output is larger than estimated: grow once to the reported size and
+        // rerun this frame. The buffer is kept, so later frames need one call only.
+        output_buffer_.resize(static_cast<size_t>(output_numel));
+        status = infer();
+    }
+    if (status != 0) {
+        // Inference failures (input mismatch, model errors) repeat on every frame,
+        // so surface them to main(), which aborts. The Swift layer has already
+        // printed the specific reason on stderr.
+        throw std::runtime_error("Core AI inference failed (status " + std::to_string(status) +
+                                 "; see the [CoreAI] message above).");
+    }
+    if (output_numel == 0) {
+        return;  // Valid empty output: nothing detected in this frame.
     }
 
     // The shared decoders take a [1, dim1, dim2] tensor; require exactly rank 3
@@ -68,7 +92,7 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
     }
 
     CoreAITensor output;
-    output.data = output_buffer.data();
+    output.data = output_buffer_.data();
     output.numel = output_numel;
     output.shape = reported_shape;
 

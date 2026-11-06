@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -375,11 +376,29 @@ TEST(ConfigParsing, FrameworkFromStringKnownValues) {
     EXPECT_EQ(frameworkFromString("CoreAI"), FRAMEWORK::CoreAI);
 }
 
-TEST(ConfigParsing, FrameworkFromStringFallsBackToOpenCV) {
-    StreamCapture capture(std::cerr);
-    const FRAMEWORK framework = frameworkFromString("does-not-exist");
-    EXPECT_EQ(framework, FRAMEWORK::OpenCV);
+TEST(ConfigParsing, FrameworkFromStringRejectsUnknownNames) {
+    // A typo must not silently switch to another backend (it used to fall back
+    // to OpenCV, which then failed later with a confusing model-format error).
+    try {
+        frameworkFromString("CoreAi");
+        FAIL() << "expected std::invalid_argument";
+    } catch (const std::invalid_argument& e) {
+        const std::string message = e.what();
+        EXPECT_NE(message.find("'CoreAi'"), std::string::npos) << message;
+        EXPECT_NE(message.find("OpenCV, OpenVINO, ONNXRuntime, CoreAI"), std::string::npos) << message;
+    }
 }
+
+#ifndef HAVE_HAILO
+TEST(ConfigParsing, FrameworkFromStringExplainsHailoOutsideRaspberryPiBuilds) {
+    try {
+        frameworkFromString("Hailo");
+        FAIL() << "expected std::invalid_argument";
+    } catch (const std::invalid_argument& e) {
+        EXPECT_NE(std::string(e.what()).find("Raspberry Pi"), std::string::npos) << e.what();
+    }
+}
+#endif
 
 TEST(ConfigParsing, SourceFromStringKnownValues) {
     EXPECT_EQ(sourceFromString("VIDEO"), SOURCE::VIDEO);
@@ -830,6 +849,12 @@ TEST(ConfigYaml, PrefersOutputSectionOverLegacyInputKey) {
         "input:\n  video_output_file: \"legacy.mp4\"\n"
         "output:\n  video_output_file: \"from_output.mp4\"\n");
     EXPECT_EQ(loadedOutputFileName(path), "from_output.mp4");
+}
+TEST(ConfigYaml, UnknownFrameworkAbortsLoading) {
+    const std::string path = writeTempConfig(
+        "objdet_test_unknown_framework.yaml",
+        "backend:\n  framework: \"OnnxRuntime\"\n");
+    EXPECT_THROW(loadConfigYAML(path), std::invalid_argument);
 }
 #endif  // USE_YAML_CONFIG
 

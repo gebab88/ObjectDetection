@@ -2,6 +2,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <csignal>
+#include <exception>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -50,7 +51,16 @@ int main(int argc, char** argv) {
 
     // ── Load config ───────────────────────────────────────────────────────────
 #if defined(USE_YAML_CONFIG)
-    const Config cfg = loadConfigYAML(resolveConfigPath(config_path));
+    Config cfg;
+    try {
+        cfg = loadConfigYAML(resolveConfigPath(config_path));
+    } catch (const std::exception& e) {
+        // Missing or malformed keys fall back to defaults inside loadConfigYAML;
+        // what reaches here is a value that must not be guessed (e.g. an unknown
+        // backend name), so stop instead of running something else.
+        std::cerr << "Error in config: " << e.what() << std::endl;
+        return 1;
+    }
 #else
     if (!config_path.empty()) {
         std::cerr << "Note: --config is ignored; this build has no YAML support." << std::endl;
@@ -93,7 +103,15 @@ int main(int argc, char** argv) {
     signal(SIGINT, signalHandler);
     while (keep_running && video.read(frame)) {
         video.crop_frame(frame);
-        detection->detect(frame);
+        try {
+            detection->detect(frame);
+        } catch (const std::exception& e) {
+            // Backends throw when inference itself fails (e.g. Core AI rejecting
+            // the input, ONNX Runtime shape errors). Such failures repeat on every
+            // frame, so abort instead of writing a video without detections.
+            std::cerr << "Aborting: detection failed: " << e.what() << std::endl;
+            return 1;
+        }
         if (cfg.show_frames) {
             video.showFrame("Object Detector", frame);
         }

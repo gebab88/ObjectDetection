@@ -26,7 +26,8 @@ struct CoreAITensor {
 //   - model_path: path of the Core AI model asset (e.g. yolo26m.aimodel).
 //   - output_data / output_capacity: caller-provided buffer that receives the raw
 //     output tensor; the Swift layer writes at most `output_capacity` floats and
-//     reports the actual number of valid values through *output_numel.
+//     reports the actual number of valid values through *output_numel (see the
+//     status 2 contract below when the buffer is too small).
 //   - output_numel / output_shape / output_shape_capacity: the Swift layer reports
 //     the number of valid output values through *output_numel and the output
 //     dimensions through output_shape[0 .. rank-1] (rank included, e.g. {1, 84, 8400}
@@ -36,7 +37,11 @@ struct CoreAITensor {
 //     output_shape_capacity, and likewise when the values exceed output_capacity.
 // The output is always delivered as dense row-major float32: float16 outputs are
 // converted and strided (non-contiguous) layouts are gathered.
-// Returns 0 on success, nonzero on failure (including invalid input).
+// Returns 0 on success (an empty output with *output_numel == 0 is valid), 2 when
+// the output has more values than output_capacity (then *output_numel holds the
+// required count, nothing else is written, and the caller may retry with a larger
+// buffer), and any other nonzero value on failure (the Swift layer has already
+// printed the reason to stderr).
 extern "C" int coreAIInfer(const float* input_data,
                            int64_t input_numel,
                            const int64_t* input_shape,
@@ -59,8 +64,14 @@ class Detection_CoreAI : public Detection {
 
     void detect(cv::Mat &frame) override;
 
+    // Status returned by coreAIInfer when output_capacity is too small.
+    static constexpr int kStatusBufferTooSmall = 2;
+
     private:
     float nms_threshold_;
+    // Reused across frames; sized lazily from the model shape and grown when the
+    // Swift layer reports a larger output (status kStatusBufferTooSmall).
+    std::vector<float> output_buffer_;
 };
 
 #endif //OBJECTDETECTION_DETECTIONHANDLER_COREAI_HPP

@@ -354,7 +354,7 @@ model:
   model_height: 640
 
 backend:
-  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime | CoreAI | Hailo
+  framework: "ONNXRuntime"   # OpenCV | OpenVINO | ONNXRuntime | CoreAI | Hailo (case-sensitive)
   use_cuda: false
 
 input:
@@ -370,7 +370,13 @@ display:
 ```
 
 If yaml-cpp or `config.yaml` is not available, the program uses built-in
-defaults that match the backends compiled into the binary.
+defaults that match the backends compiled into the binary. Missing or malformed
+keys fall back to these defaults, but an unknown `backend.framework` name (e.g. a
+typo such as `CoreAi`) aborts at startup with the list of valid names instead of
+switching to another backend. Likewise, if inference fails while processing
+frames (for example because `model_width`/`model_height` do not match the
+model), the program prints the reason and aborts instead of writing a video
+without detections.
 
 To run detection through the Apple **Core AI** backend instead of ONNX Runtime,
 set:

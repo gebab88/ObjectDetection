@@ -234,12 +234,24 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
         return -1
     }
     guard let floats = outcome else { return -1 }
-    // Fail closed instead of writing past the caller's buffers: the output values
-    // must fit into outputData and the dimensions into outputShape.
-    guard !floats.isEmpty, floats.count <= Int(outputCapacity) else { return -1 }
-    guard outShape.count <= Int(outputShapeCapacity) else { return -1 }
-    floats.withUnsafeBufferPointer { src in
-        outputData.update(from: src.baseAddress!, count: src.count)
+    // Never write past the caller's buffers. Too many dimensions is an error; too
+    // many values is not: report the required count with status 2 so the caller
+    // can grow its buffer and call again (the output size depends on the model's
+    // input size and class count, which the caller cannot know up front).
+    guard outShape.count <= Int(outputShapeCapacity) else {
+        CoreAIErrorLog.shared.report(coreAIError(9, "Core AI output has rank \(outShape.count); at most \(outputShapeCapacity) dimensions are supported"))
+        return -1
+    }
+    if floats.count > Int(outputCapacity) {
+        outputNumel[0] = Int64(floats.count)
+        return 2
+    }
+    // An empty output (e.g. an end-to-end head with zero detections) is a valid
+    // result, not a failure.
+    if !floats.isEmpty {
+        floats.withUnsafeBufferPointer { src in
+            outputData.update(from: src.baseAddress!, count: src.count)
+        }
     }
     outputNumel[0] = Int64(floats.count)
     for i in 0..<outShape.count {
