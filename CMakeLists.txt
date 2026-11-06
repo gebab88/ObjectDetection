@@ -268,7 +268,7 @@ if(ENABLE_HAILO)
     )
 
     if(HAILORT_LIBRARY AND HAILORT_INCLUDE_DIR)
-        list(APPEND PLATFORM_SOURCES src/Detection_Hailo.cpp src/Yolo26Decoder.cpp)
+        list(APPEND PLATFORM_SOURCES src/Detection_Hailo.cpp src/Yolo26Decoder.cpp src/HailoOutput.cpp)
         list(APPEND PLATFORM_LIBS "${HAILORT_LIBRARY}")
         list(APPEND PLATFORM_INCLUDE_DIRS "${HAILORT_INCLUDE_DIR}")
         list(APPEND PROJECT_COMPILE_DEFINITIONS HAVE_HAILO)
@@ -467,8 +467,8 @@ if(BUILD_TESTING)
 
     if(TARGET GTest::gtest_main)
         add_executable(tests_runner tests/test_framework.cpp tests/test_yolo26_decoder.cpp
-                                    tests/test_detection_pipeline.cpp
-                                    src/VideoHandler.cpp src/Yolo26Decoder.cpp
+                                    tests/test_detection_pipeline.cpp tests/test_hailo_output.cpp
+                                    src/VideoHandler.cpp src/Yolo26Decoder.cpp src/HailoOutput.cpp
                                     src/Detection.cpp src/DetectionPipeline.cpp)
         target_include_directories(tests_runner PRIVATE include)
         target_link_libraries(tests_runner PRIVATE GTest::gtest_main ${OpenCV_LIBS})

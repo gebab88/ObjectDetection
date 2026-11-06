@@ -542,6 +542,7 @@ ObjectDetection/
 │   ├── Detection_OpenVINO.hpp
 │   ├── Detection_Hailo.hpp
 │   ├── Yolo26Decoder.hpp     # Decoder for raw YOLO26 heads of Hailo HEFs
+│   ├── HailoOutput.hpp       # Hailo NMS parsing, scaling and drawing
 │   ├── DetectionPipeline.hpp # Frame loop keeping several frames in flight
 │   ├── DetectorFactory.hpp   # Backend selection + createDetector()
 │   ├── VideoHandler.hpp
@@ -560,6 +561,7 @@ ObjectDetection/
 │   ├── Detection_ORT.cpp
 │   ├── Detection_Hailo.cpp
 │   ├── Yolo26Decoder.cpp
+│   ├── HailoOutput.cpp
 │   ├── DetectionPipeline.cpp
 │   ├── DetectorFactory.cpp
 │   ├── VideoHandler.cpp
@@ -573,6 +575,7 @@ ObjectDetection/
     ├── test_inference.cpp    # Real ONNX inference test over tests/ videos
     ├── test_audio_mux.cpp    # Audio passthrough tests (built with FFmpeg libraries)
     ├── test_yolo26_decoder.cpp     # Raw YOLO26 head decoding (Hailo)
+    ├── test_hailo_output.cpp       # Hailo NMS parsing, scaling and drawing
     ├── test_detection_pipeline.cpp # Frame order and frames in flight
     └── *.MOV                 # Local, git-ignored test videos
 ```
@@ -591,6 +594,7 @@ ObjectDetection/
 | `Detection_CoreAI`  | Core AI backend for YOLO26 on Apple Silicon (macOS 27+, Swift interop layer; falls back to ONNX Runtime) |
 | `detection_pipeline`| `run()` reads, detects and delivers frames in order, with up to `max_frames_in_flight()` frames in progress |
 | `yolo26`            | `decode()` turns the quantized raw YOLO26 head outputs of a HEF into boxes (no ONNX postprocess model needed) |
+| `hailo_output`      | Parses Hailo NMS output, scales YOLO26 results to the frame and draws both with the shared `drawDetection()` |
 | `DetectorFactory`   | `createDetector()` builds the configured backend; `supportedBackendsFor()` encodes format↔backend compatibility (free functions) |
 | `YoloPostprocess`   | Header-only decoders (raw / end-to-end + `decodeByFormat` dispatch), NMS and box/label drawing |
 | `VideoHandler`      | Opens video/webcam, crops to square, writes output video; `finish_output()` closes it and adds the source audio |

@@ -35,12 +35,6 @@ public:
     std::future<void> detect_async(cv::Mat frame) override;
 
 private:
-    struct DetectionResult {
-        cv::Rect box;  // model input pixels
-        int class_id = -1;
-        float score = 0.0f;
-    };
-
     // Output pair of one YOLO26 head scale.
     struct RawLevel {
         std::string boxes_output;
@@ -64,9 +58,7 @@ private:
 
     void setup_raw_outputs(hailort::InferModel &infer_model);
     void finish(Slot &slot, cv::Mat &frame);
-    void draw_nms_output(Slot &slot, cv::Mat &frame);
-    std::vector<DetectionResult> decode_raw_output(Slot &slot);
-    void draw_detections(cv::Mat &frame, const std::vector<DetectionResult> &detections);
+    std::vector<yolo26::Result> decode_raw_output(Slot &slot);
 
     std::unique_ptr<hailort::VDevice>      vdevice_;
     hailort::ConfiguredInferModel          configured_model_;

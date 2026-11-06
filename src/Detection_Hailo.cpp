@@ -1,4 +1,5 @@
 #include "Detection_Hailo.hpp"
+#include "HailoOutput.hpp"
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -248,50 +249,22 @@ void Detection_Hailo::finish(Slot &slot, cv::Mat &frame) {
         throw std::runtime_error(hailoError("inference", status));
     }
 
+    const cv::Size frame_size(frame.cols, frame.rows);
+    std::vector<hailo_output::Detection> detections;
     if (nms_output_) {
-        draw_nms_output(slot, frame);
+        const auto &buffer = slot.outputs.at(output_name_);
+        detections = hailo_output::parseNmsByClass(
+            reinterpret_cast<const float*>(buffer.data()), buffer.size() / sizeof(float),
+            static_cast<int>(nms_shape_.number_of_classes),
+            static_cast<int>(nms_shape_.max_bboxes_per_class),
+            score_threshold_, frame_size);
     } else {
-        draw_detections(frame, decode_raw_output(slot));
+        detections = hailo_output::fromYolo26(decode_raw_output(slot), model_shape_, frame_size);
     }
+    hailo_output::drawDetections(frame, detections, class_list_);
 }
 
-void Detection_Hailo::draw_nms_output(Slot &slot, cv::Mat &frame) {
-    // ── Parse NMS output (HAILO_FORMAT_ORDER_HAILO_NMS_BY_CLASS) ─────────────
-    // Per class: float32 bbox_count, then max_bboxes_per_class × hailo_bbox_float32_t
-    const float x_scale = static_cast<float>(frame.cols);
-    const float y_scale = static_cast<float>(frame.rows);
-    constexpr size_t BBOX_FLOATS = sizeof(hailo_bbox_float32_t) / sizeof(float); // 5
-
-    const float* ptr = reinterpret_cast<const float*>(slot.outputs.at(output_name_).data());
-
-    for (uint32_t cls = 0; cls < nms_shape_.number_of_classes; cls++) {
-        const int count = std::min(static_cast<int>(*ptr++),
-                                   static_cast<int>(nms_shape_.max_bboxes_per_class));
-        for (int d = 0; d < count; d++) {
-            const auto& bbox = *reinterpret_cast<const hailo_bbox_float32_t*>(ptr);
-
-            if (bbox.score >= score_threshold_ && cls < class_list_.size()) {
-                const float x1 = bbox.x_min * x_scale;
-                const float y1 = bbox.y_min * y_scale;
-                const float x2 = bbox.x_max * x_scale;
-                const float y2 = bbox.y_max * y_scale;
-
-                if (x2 > x1 && y2 > y1) {
-                    const cv::Rect box(int(x1), int(y1), int(x2 - x1), int(y2 - y1));
-                    cv::rectangle(frame, box, cv::Scalar(0, 255, 255), 1);
-                    const std::string label =
-                        class_list_[cls] + "  " + std::to_string(int(100 * bbox.score)) + "%";
-                    std::cout << label << '\n';
-                    cv::putText(frame, label, cv::Point(box.x, box.y),
-                                cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255, 255, 255), 2);
-                }
-            }
-            ptr += BBOX_FLOATS;
-        }
-    }
-}
-
-std::vector<Detection_Hailo::DetectionResult> Detection_Hailo::decode_raw_output(Slot &slot) {
+std::vector<yolo26::Result> Detection_Hailo::decode_raw_output(Slot &slot) {
     std::vector<yolo26::HeadLevel> levels;
     levels.reserve(raw_levels_.size());
     for (const auto &level : raw_levels_) {
@@ -302,51 +275,5 @@ std::vector<Detection_Hailo::DetectionResult> Detection_Hailo::decode_raw_output
             level.score_quant,
             level.height, level.width, level.stride});
     }
-
-    const float max_x = model_shape_.width;
-    const float max_y = model_shape_.height;
-    std::vector<DetectionResult> detections;
-    for (const auto &det : yolo26::decode(levels, raw_num_classes_, score_threshold_)) {
-        if (det.class_id >= static_cast<int>(class_list_.size())) {
-            continue;
-        }
-        const float x1 = std::max(0.0f, det.x1);
-        const float y1 = std::max(0.0f, det.y1);
-        const float x2 = std::min(max_x, det.x2);
-        const float y2 = std::min(max_y, det.y2);
-        if (x2 <= x1 || y2 <= y1) {
-            continue;
-        }
-        detections.push_back({
-            cv::Rect(static_cast<int>(x1), static_cast<int>(y1),
-                     static_cast<int>(x2 - x1), static_cast<int>(y2 - y1)),
-            det.class_id,
-            det.score
-        });
-    }
-    return detections;
-}
-
-void Detection_Hailo::draw_detections(cv::Mat &frame, const std::vector<DetectionResult> &detections) {
-    const float x_scale = static_cast<float>(frame.cols) / model_shape_.width;
-    const float y_scale = static_cast<float>(frame.rows) / model_shape_.height;
-
-    for (const auto &det : detections) {
-        cv::Rect box(
-            static_cast<int>(det.box.x * x_scale),
-            static_cast<int>(det.box.y * y_scale),
-            static_cast<int>(det.box.width * x_scale),
-            static_cast<int>(det.box.height * y_scale));
-        box &= cv::Rect(0, 0, frame.cols, frame.rows);
-        if (box.empty()) {
-            continue;
-        }
-
-        cv::rectangle(frame, box, cv::Scalar(0, 255, 255), 2);
-        const std::string label = class_list_[det.class_id] + "  "
-            + std::to_string(static_cast<int>(100 * det.score)) + "%";
-        std::cout << label << '\n';
-        cv::putText(frame, label, cv::Point(box.x, std::max(0, box.y - 4)),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 255), 2);
-    }
+    return yolo26::decode(levels, raw_num_classes_, score_threshold_);
 }
