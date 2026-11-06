@@ -47,6 +47,65 @@ actor CoreAIState {
     }
 }
 
+private func coreAIError(_ code: Int, _ message: String) -> NSError {
+    NSError(domain: "CoreAI", code: code, userInfo: [NSLocalizedDescriptionKey: message])
+}
+
+// Reports a Core AI failure on stderr, once per distinct message: the C entry point
+// only returns a status code, so without this the reason (e.g. an input mismatch)
+// would never reach the user, and once-only keeps the frame loop from spamming.
+final class CoreAIErrorLog {
+    static let shared = CoreAIErrorLog()
+    private let lock = NSLock()
+    private var reported = Set<String>()
+
+    func report(_ error: Error) {
+        let message = "[CoreAI] Inference failed: \(error.localizedDescription)\n"
+        lock.lock()
+        let isNew = reported.insert(message).inserted
+        lock.unlock()
+        if isNew {
+            FileHandle.standardError.write(Data(message.utf8))
+        }
+    }
+}
+
+// Resolves the model's image input from its descriptor instead of assuming the
+// Ultralytics export name "images", and checks that the preprocessed frame (float32
+// tensor of `shape`) matches what the model expects, so a mismatch fails with a
+// clear message rather than an opaque inference error.
+private func imageInputName(of function: InferenceFunction, shape: [Int]) throws -> String {
+    let descriptor = function.descriptor
+    let names = descriptor.inputNames
+    let name: String
+    if names.count == 1 {
+        name = names[0]
+    } else if names.contains("images") {
+        name = "images"
+    } else if names.isEmpty {
+        throw coreAIError(6, "Core AI model has no inputs")
+    } else {
+        throw coreAIError(6, "Core AI model has \(names.count) inputs (\(names.joined(separator: ", "))); cannot tell which one takes the image")
+    }
+
+    switch descriptor.inputDescriptor(of: name) {
+    case .ndArray(let input)?:
+        guard input.scalarType == .float32 else {
+            throw coreAIError(7, "Core AI model input '\(name)' expects \(input.scalarType) data; only float32 is supported")
+        }
+        if !input.hasDynamicShape && input.shape != shape {
+            throw coreAIError(8, "Core AI model input '\(name)' expects shape \(input.shape), got \(shape); check model_width/model_height in config.yaml")
+        }
+    case .image?:
+        throw coreAIError(7, "Core AI model input '\(name)' expects an image (pixel buffer); only tensor inputs are supported")
+    case nil:
+        throw coreAIError(6, "Core AI model input '\(name)' has no descriptor")
+    @unknown default:
+        throw coreAIError(7, "Core AI model input '\(name)' has an unsupported kind")
+    }
+    return name
+}
+
 // Copies an output tensor into a dense row-major float32 array. Core AI may hand
 // back float16 tensors and non-contiguous layouts (strides are in elements), so
 // both the scalar type and the strides are honoured instead of assuming packed
@@ -153,11 +212,15 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
     Task {
         do {
             let function = try await CoreAIState.shared.function(modelPath: path)
-            let inputs: [String: NDArray] = ["images": inputNDArray]
+            let inputName = try imageInputName(of: function, shape: shapeInts)
+            let inputs: [String: NDArray] = [inputName: inputNDArray]
             let outputs = try await function.run(inputs: inputs)
             var o = outputs
-            guard let name = o.names.first, let value = o.remove(name) else { throw NSError(domain: "CoreAI", code: 2, userInfo: [NSLocalizedDescriptionKey: "Core AI inference returned no value"]) }
-            guard let arr = value.ndArray else { throw NSError(domain: "CoreAI", code: 3, userInfo: [NSLocalizedDescriptionKey: "Core AI inference output is not a tensor"]) }
+            // Take the model's first declared output (deterministic order from the
+            // descriptor); fall back to whatever the result holds.
+            guard let name = function.descriptor.outputNames.first ?? o.names.first,
+                  let value = o.remove(name) else { throw coreAIError(2, "Core AI inference returned no value") }
+            guard let arr = value.ndArray else { throw coreAIError(3, "Core AI inference output '\(name)' is not a tensor") }
             outcome = try denseFloats(from: arr)
             outShape = arr.shape.map { Int64($0) }
         } catch {
@@ -166,7 +229,10 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
         sem.signal()
     }
     sem.wait()
-    if taskErr != nil { return -1 }
+    if let taskErr = taskErr {
+        CoreAIErrorLog.shared.report(taskErr)
+        return -1
+    }
     guard let floats = outcome else { return -1 }
     // Fail closed instead of writing past the caller's buffers: the output values
     // must fit into outputData and the dimensions into outputShape.

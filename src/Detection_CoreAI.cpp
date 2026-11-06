@@ -52,7 +52,8 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
                                    &output_numel, output_shape.data(),
                                    static_cast<int64_t>(output_shape.size()), &output_rank);
     if (status != 0 || output_numel <= 0) {
-        yolo_postprocess::warnUnsupportedShape("CoreAI", {});
+        // The Swift layer already reported the reason on stderr (once per distinct
+        // message); there is no output shape to warn about here.
         return;
     }
 
