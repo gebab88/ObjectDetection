@@ -105,6 +105,24 @@ TEST(DetectionPipeline, KeepsUpToMaxFramesInFlightAndDeliversInReadOrder) {
     EXPECT_EQ(delivered, (std::vector<int>{1000, 1001, 1002, 1003, 1004, 1005, 1006}));
 }
 
+// The first frame runs alone, so its time shows the backend's warm-up (lazy
+// model loading, graph compilation) instead of also reading ahead.
+TEST(DetectionPipeline, FinishesFirstFrameBeforeReadingAhead) {
+    std::vector<std::string> log;
+    PipelinedDetector detector(3);
+    CountingReader reader{5, 0, &log};
+
+    detection_pipeline::run(detector, reader, [&](cv::Mat& frame) {
+        log.push_back("deliver " + std::to_string(frameIndex(frame) - 1000));
+        return true;
+    });
+
+    ASSERT_GE(log.size(), 5u);
+    EXPECT_EQ(std::vector<std::string>(log.begin(), log.begin() + 5),
+              (std::vector<std::string>{"read 0", "deliver 0", "read 1", "read 2", "read 3"}));
+    EXPECT_EQ(detector.max_seen, 3u);
+}
+
 TEST(DetectionPipeline, DeliversFramesStillInFlightWhenReadingStops) {
     PipelinedDetector detector(4);
     CountingReader reader{2};

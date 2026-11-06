@@ -28,15 +28,20 @@ bool run(Detection& detection,
         }
     } drain{in_flight};
 
+    // The first frame runs alone: backends may finish their setup lazily on it,
+    // and its time should show that warm-up, not reading ahead.
+    bool warmed_up = false;
+
     auto finishOldest = [&]() {
         InFlight item = std::move(in_flight.front());
         in_flight.pop_front();
         item.done.get();  // rethrows detection errors
+        warmed_up = true;
         return deliver(item.frame);
     };
 
     while (true) {
-        while (in_flight.size() >= depth) {
+        while (in_flight.size() >= (warmed_up ? depth : 1)) {
             if (!finishOldest()) return false;
         }
         cv::Mat frame;  // fresh buffer: frames in flight must not be overwritten

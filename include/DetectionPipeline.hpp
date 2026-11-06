@@ -14,7 +14,8 @@
 // read into a fresh cv::Mat, so frames still in flight are never overwritten.
 // deliver() receives the finished frames in reading order; returning false
 // stops the run. With a synchronous backend (one frame in flight) each frame
-// is delivered before the next one is read, exactly like a plain loop.
+// is delivered before the next one is read, exactly like a plain loop. The
+// first frame always runs alone, so its time shows the backend's warm-up.
 //
 // Frames still in flight when reading stops are finished and delivered.
 // Detection errors are rethrown. Returns false if deliver() failed.
