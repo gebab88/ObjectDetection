@@ -195,6 +195,62 @@ TEST(YoloPostprocess, DecodeEndToEndDrawsBoundingBoxAndLabel) {
     EXPECT_NE(stdout_text.find("truck"), std::string::npos);
 }
 
+namespace {
+// Two strongly overlapping end-to-end detections (IoU ~0.9), e.g. a rider on a horse.
+std::string decodeOverlappingPair(int first_class, int second_class) {
+    constexpr int detections = 2;
+    constexpr int fields = 6; // x1, y1, x2, y2, score, class id
+    const std::vector<float> output = {
+        20.0f, 20.0f, 80.0f, 80.0f, 0.90f, static_cast<float>(first_class),
+        22.0f, 22.0f, 80.0f, 82.0f, 0.80f, static_cast<float>(second_class),
+    };
+    cv::Mat frame(100, 100, CV_8UC3, cv::Scalar(0, 0, 0));
+    const std::vector<std::string> classes = {"person", "horse"};
+
+    StreamCapture capture(std::cout);
+    EXPECT_TRUE(yolo_postprocess::decodeEndToEnd(output.data(), detections, fields, frame,
+                                                 cv::Size2f(100, 100), classes, 0.5f, 0.5f));
+    return capture.str();
+}
+} // namespace
+
+TEST(YoloPostprocess, NmsKeepsOverlappingDetectionsOfDifferentClasses) {
+    // NMS must run per class (as in Ultralytics): an overlapping box of another
+    // class is a different object, not a duplicate.
+    const std::string stdout_text = decodeOverlappingPair(0, 1);
+    EXPECT_EQ(countOccurrences(stdout_text, "person"), 1u);
+    EXPECT_EQ(countOccurrences(stdout_text, "horse"), 1u);
+}
+
+TEST(YoloPostprocess, NmsSuppressesOverlappingDetectionsOfSameClass) {
+    const std::string stdout_text = decodeOverlappingPair(0, 0);
+    EXPECT_EQ(countOccurrences(stdout_text, "person  90%"), 1u);
+    EXPECT_EQ(countOccurrences(stdout_text, "person"), 1u);
+}
+
+TEST(YoloPostprocess, ClassAwareNmsKeepsBestPerClassOrderedByScore) {
+    const std::vector<cv::Rect> boxes = {
+        {10, 10, 50, 50},  // 0: class 1, 0.60 -> suppressed by box 2
+        {12, 12, 50, 50},  // 1: class 0, 0.70 -> kept (different class)
+        {11, 11, 50, 50},  // 2: class 1, 0.95 -> kept
+        {70, 70, 20, 20},  // 3: class 1, 0.80 -> kept (no overlap)
+    };
+    const std::vector<float> scores = {0.60f, 0.70f, 0.95f, 0.80f};
+    const std::vector<int> class_ids = {1, 0, 1, 1};
+
+    const std::vector<int> kept = yolo_postprocess::classAwareNms(boxes, scores, class_ids, 0.5f, 0.5f);
+
+    EXPECT_EQ(kept, (std::vector<int>{2, 3, 1}));
+}
+
+TEST(YoloPostprocess, ClassAwareNmsRejectsMismatchedInputs) {
+    const std::vector<cv::Rect> boxes = {{10, 10, 50, 50}, {70, 70, 20, 20}};
+    const std::vector<float> scores = {0.9f, 0.8f};
+    const std::vector<int> class_ids = {0};
+
+    EXPECT_TRUE(yolo_postprocess::classAwareNms(boxes, scores, class_ids, 0.5f, 0.5f).empty());
+}
+
 TEST(YoloPostprocess, DecodeEndToEndIgnoresSegmentationFields) {
     constexpr int detections = 300;
     constexpr int fields = 38; // x1, y1, x2, y2, score, class id, mask coefficients

@@ -150,6 +150,53 @@ inline void drawDetection(cv::Mat& frame,
                 cv::Scalar(255, 255, 255), thickness, cv::LINE_AA);
 }
 
+// Per-class non-maximum suppression, as in Ultralytics (agnostic=False): only
+// boxes of the same class suppress each other, so strongly overlapping objects of
+// different classes (a rider on a horse) are both kept. Returns the kept indices
+// ordered by descending score. Implemented on top of cv::dnn::NMSBoxes (instead of
+// NMSBoxesBatched) because the latter needs OpenCV >= 4.7 and Ubuntu ships 4.6.
+inline std::vector<int> classAwareNms(const std::vector<cv::Rect>& boxes,
+                                      const std::vector<float>& scores,
+                                      const std::vector<int>& class_ids,
+                                      float score_threshold,
+                                      float nms_threshold) {
+    std::vector<int> kept;
+    if (boxes.empty() || boxes.size() != scores.size() || boxes.size() != class_ids.size()) {
+        return kept;
+    }
+
+    std::vector<int> classes(class_ids);
+    std::sort(classes.begin(), classes.end());
+    classes.erase(std::unique(classes.begin(), classes.end()), classes.end());
+
+    std::vector<cv::Rect> class_boxes;
+    std::vector<float> class_scores;
+    std::vector<int> class_indices;
+    std::vector<int> class_kept;
+    for (const int class_id : classes) {
+        class_boxes.clear();
+        class_scores.clear();
+        class_indices.clear();
+        for (size_t i = 0; i < boxes.size(); ++i) {
+            if (class_ids[i] == class_id) {
+                class_boxes.push_back(boxes[i]);
+                class_scores.push_back(scores[i]);
+                class_indices.push_back(static_cast<int>(i));
+            }
+        }
+        class_kept.clear();
+        cv::dnn::NMSBoxes(class_boxes, class_scores, score_threshold, nms_threshold, class_kept);
+        for (const int k : class_kept) {
+            kept.push_back(class_indices[k]);
+        }
+    }
+
+    // Highest score first, so label placement favours the most confident boxes
+    // regardless of class order.
+    std::stable_sort(kept.begin(), kept.end(), [&](int a, int b) { return scores[a] > scores[b]; });
+    return kept;
+}
+
 inline void drawNmsDetections(cv::Mat& frame,
                               const std::vector<cv::Rect>& boxes,
                               const std::vector<int>& class_ids,
@@ -161,8 +208,8 @@ inline void drawNmsDetections(cv::Mat& frame,
         return;
     }
 
-    std::vector<int> nms_result;
-    cv::dnn::NMSBoxes(boxes, scores, score_threshold, nms_threshold, nms_result);
+    const std::vector<int> nms_result =
+        classAwareNms(boxes, scores, class_ids, score_threshold, nms_threshold);
 
     std::vector<cv::Rect> occupied_labels;
     for (const int idx : nms_result) {
