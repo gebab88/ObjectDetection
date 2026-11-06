@@ -3,44 +3,47 @@
 // backend (Detection_CoreAI).
 //
 // The entry point is a synchronous C function (required by the C++ backend) that
-// bridges onto the Swift concurrency runtime: the Core AI inference runs on a
-// background task and the caller blocks until it finishes.
+// bridges onto the Swift concurrency runtime: model loading and inference run in a
+// single background task that never blocks, and only the calling C++ thread (which
+// is not part of Swift's cooperative thread pool) waits for that task to finish.
+// Blocking inside a task on another task would occupy a cooperative pool thread and
+// can deadlock once the pool is exhausted (reproducible with
+// LIBDISPATCH_COOPERATIVE_POOL_STRICT=1, which limits the pool to one thread).
 
 import CoreAI
 import Foundation
 import Dispatch
 
-final class CoreAIState {
+// Caches the loaded model function per model path. Loading is async and awaited
+// rather than blocked on; concurrent first calls share one in-flight load task.
+actor CoreAIState {
     static let shared = CoreAIState()
-    private let lock = NSLock()
-    private var function: InferenceFunction?
+    private var modelPath: String?
+    private var loadTask: Task<InferenceFunction, Error>?
 
-    func loadFunction(modelPath: String) throws -> InferenceFunction {
-        lock.lock()
-        defer { lock.unlock() }
-        if let f = function { return f }
-        let f = try Self.loadBlocking(modelPath: modelPath)
-        function = f
-        return f
-    }
-
-    private static func loadBlocking(modelPath: String) throws -> InferenceFunction {
-        let sem = DispatchSemaphore(value: 0)
-        var result: InferenceFunction? = nil
-        var loadErr: Error? = nil
-        Task {
-            do {
-                let model = try await AIModel(contentsOf: URL(fileURLWithPath: modelPath), options: .default)
-                result = try model.loadFunction(named: "main")
-            } catch {
-                loadErr = error
-            }
-            sem.signal()
+    func function(modelPath path: String) async throws -> InferenceFunction {
+        if let task = loadTask, modelPath == path {
+            return try await task.value
         }
-        sem.wait()
-        if let loadErr = loadErr { throw loadErr }
-        guard let f = result else { throw NSError(domain: "CoreAI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Core AI model function not found"]) }
-        return f
+        let task = Task<InferenceFunction, Error> {
+            let model = try await AIModel(contentsOf: URL(fileURLWithPath: path), options: .default)
+            guard let function = try model.loadFunction(named: "main") else {
+                throw NSError(domain: "CoreAI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Core AI model function not found"])
+            }
+            return function
+        }
+        modelPath = path
+        loadTask = task
+        do {
+            return try await task.value
+        } catch {
+            // Do not cache a failed load, so a later call can retry.
+            if modelPath == path {
+                modelPath = nil
+                loadTask = nil
+            }
+            throw error
+        }
     }
 }
 
@@ -142,13 +145,14 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
 
     // The C entry point is synchronous, so the (async) Core AI inference runs on a
     // background task and the caller blocks until it completes.
+    let path = String(cString: modelPath)
     let sem = DispatchSemaphore(value: 0)
     var outcome: [Float]? = nil
     var taskErr: Error? = nil
     var outShape: [Int64] = []
     Task {
         do {
-            let function = try CoreAIState.shared.loadFunction(modelPath: String(cString: modelPath))
+            let function = try await CoreAIState.shared.function(modelPath: path)
             let inputs: [String: NDArray] = ["images": inputNDArray]
             let outputs = try await function.run(inputs: inputs)
             var o = outputs
