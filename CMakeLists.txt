@@ -335,6 +335,10 @@ if(ENABLE_CORE_AI)
                         -sdk "${CORE_AI_SWIFT_SDK}"
                         ${CORE_AI_SWIFT_TARGET_FLAGS}
                         -swift-version 5
+                        # Optimise: without -O swiftc emits unoptimised code, and the
+                        # per-frame loops in the interop layer (output gather,
+                        # float16 conversion) run several times slower.
+                        -O
                         -parse-as-library
                         -emit-object
                         -module-name CoreAIInterop

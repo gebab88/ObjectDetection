@@ -191,15 +191,32 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
         shapeInts.append(Int(inputShape[i]))
     }
 
+    // The NDArray holds exactly product(shape) floats; copying a different count
+    // would read past the caller's data or write past the tensor.
+    var shapeNumel = 1
+    for v in shapeInts { shapeNumel *= v }
+    guard shapeNumel == Int(inputNumel) else {
+        CoreAIErrorLog.shared.report(coreAIError(10, "Core AI input has \(inputNumel) values but its shape \(shapeInts) needs \(shapeNumel)"))
+        return -1
+    }
+
     var inputNDArray = NDArray(shape: shapeInts, scalarType: .float32)
-    // Populate the input tensor with the preprocessed frame data passed in by the
-    // C++ backend; the NDArray above is zero-filled by default, so without this
-    // copy the model would run on an all-zero image.
-    inputNDArray.mutableRawView().withUnsafeMutableBytes { rawPtr, _, _ in
-        let buf = rawPtr.assumingMemoryBound(to: Float.self)
-        for i in 0..<Int(inputNumel) {
-            buf[i] = inputData[i]
+    var contiguousStrides = [Int](repeating: 1, count: shapeInts.count)
+    if shapeInts.count > 1 {
+        for d in stride(from: shapeInts.count - 2, through: 0, by: -1) {
+            contiguousStrides[d] = contiguousStrides[d + 1] * shapeInts[d + 1]
         }
+    }
+    guard inputNDArray.strides.isEmpty || inputNDArray.strides == contiguousStrides else {
+        CoreAIErrorLog.shared.report(coreAIError(10, "Core AI input tensor has non-contiguous strides \(inputNDArray.strides)"))
+        return -1
+    }
+    // Populate the input tensor with the preprocessed frame data passed in by the
+    // C++ backend (the NDArray is zero-filled by default, so without this copy the
+    // model would run on an all-zero image). A freshly created NDArray uses the
+    // contiguous row-major layout of the CHW blob, so one bulk copy suffices.
+    inputNDArray.mutableRawView().withUnsafeMutableBytes { rawPtr, _, _ in
+        rawPtr.copyMemory(from: UnsafeRawPointer(inputData), byteCount: shapeNumel * MemoryLayout<Float>.stride)
     }
 
     // The C entry point is synchronous, so the (async) Core AI inference runs on a

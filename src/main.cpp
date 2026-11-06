@@ -3,6 +3,7 @@
 #include <opencv2/highgui.hpp>
 #include <csignal>
 #include <exception>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -99,8 +100,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Startup = config, backend construction (model load) and opening the source.
+    const double startup_seconds = timer.getElapsedTime();
+
+    // Per-frame timing covers read, crop, detect, display and write. The first
+    // frame is reported separately: backends may finish their setup lazily there
+    // (Core AI loads the model on the first inference, ONNX Runtime/CoreML compiles
+    // the graph), which would otherwise skew the average of short runs.
+    Timer frame_timer;
+    double first_frame_seconds = 0.0;
+    double steady_seconds = 0.0;
+    long frames_processed = 0;
+
     cv::Mat frame;
     signal(SIGINT, signalHandler);
+    frame_timer.start();
     while (keep_running && video.read(frame)) {
         video.crop_frame(frame);
         try {
@@ -120,10 +134,35 @@ int main(int argc, char** argv) {
             std::cerr << "Aborting: could not open or write the output video." << std::endl;
             return 1;
         }
+
+        frame_timer.stop();
+        if (frames_processed == 0) {
+            first_frame_seconds = frame_timer.getElapsedTime();
+        } else {
+            steady_seconds += frame_timer.getElapsedTime();
+        }
+        ++frames_processed;
+        frame_timer.start();
     }
 
-    std::cout << "No more frames to read or error occurred." << std::endl;
+    if (!keep_running) {
+        std::cout << "Interrupted by user." << std::endl;
+    } else {
+        std::cout << "No more frames to read or error occurred." << std::endl;
+    }
     timer.stop();
-    std::cout << "Total execution time: " << timer.getElapsedTime() << " seconds" << std::endl;
+
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Startup (config, model load, source): " << startup_seconds << " s" << std::endl;
+    if (frames_processed > 0) {
+        std::cout << "Frames processed: " << frames_processed
+                  << " (first frame " << first_frame_seconds * 1000.0 << " ms)" << std::endl;
+    }
+    if (frames_processed > 1) {
+        const double steady_frames = static_cast<double>(frames_processed - 1);
+        std::cout << "Average after first frame: " << steady_seconds * 1000.0 / steady_frames
+                  << " ms/frame, " << steady_frames / steady_seconds << " FPS" << std::endl;
+    }
+    std::cout << "Total execution time: " << timer.getElapsedTime() << " s" << std::endl;
     return 0;
 }
