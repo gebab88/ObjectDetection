@@ -13,6 +13,7 @@
 #include "Source.hpp"
 #include "Timer.hpp"
 #include "Detection.hpp"
+#include "AsyncFrameWriter.hpp"
 #include "DetectionPipeline.hpp"
 #include "DetectorFactory.hpp"
 
@@ -123,13 +124,23 @@ int main(int argc, char** argv) {
         video.crop_frame(frame);
         return true;
     };
+    // Encoding the output runs on its own thread, next to reading and detection
+    // (for 1080x1080 frames it costs more per frame than Hailo inference). The
+    // writer opens on the first frame, sized to the cropped frames.
+    AsyncFrameWriter writer([&video](const cv::Mat& frame) {
+        cv::Mat to_write = frame;
+        return video.write(to_write);
+    });
+    const auto writeFailed = [] {
+        std::cerr << "Aborting: could not open or write the output video." << std::endl;
+        return 1;
+    };
     const auto deliver = [&](cv::Mat& frame) {
         if (cfg.show_frames) {
             video.showFrame("Object Detector", frame);
         }
-        // The writer opens on the first frame, sized to the cropped frames.
-        if (!video.write(frame)) {
-            std::cerr << "Aborting: could not open or write the output video." << std::endl;
+        if (!writer.push(frame)) {
+            writeFailed();
             return false;
         }
 
@@ -153,6 +164,14 @@ int main(int argc, char** argv) {
         // frame, so abort instead of writing a video without detections.
         std::cerr << "Aborting: detection failed: " << e.what() << std::endl;
         return 1;
+    }
+    // Wait for the frames still being encoded; that time belongs to the run.
+    if (!writer.close()) {
+        return writeFailed();
+    }
+    frame_timer.stop();
+    if (frames_processed > 1) {
+        steady_seconds += frame_timer.getElapsedTime();
     }
 
     if (!keep_running) {

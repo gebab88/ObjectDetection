@@ -139,6 +139,7 @@ set(COMMON_SOURCES
     src/Timer.cpp
     src/Detection.cpp
     src/DetectionPipeline.cpp
+    src/AsyncFrameWriter.cpp
     src/Detection_OpenCV.cpp
     src/DetectorFactory.cpp
 )
@@ -469,9 +470,9 @@ if(BUILD_TESTING)
     if(TARGET GTest::gtest_main)
         add_executable(tests_runner tests/test_framework.cpp tests/test_yolo26_decoder.cpp
                                     tests/test_detection_pipeline.cpp tests/test_hailo_output.cpp
-                                    tests/test_hailo_messages.cpp
+                                    tests/test_hailo_messages.cpp tests/test_async_frame_writer.cpp
                                     src/VideoHandler.cpp src/Yolo26Decoder.cpp src/HailoOutput.cpp
-                                    src/HailoMessages.cpp
+                                    src/HailoMessages.cpp src/AsyncFrameWriter.cpp
                                     src/Detection.cpp src/DetectionPipeline.cpp)
         target_include_directories(tests_runner PRIVATE include)
         target_link_libraries(tests_runner PRIVATE GTest::gtest_main ${OpenCV_LIBS})

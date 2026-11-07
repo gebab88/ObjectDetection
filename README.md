@@ -562,6 +562,7 @@ ObjectDetection/
 │   ├── HailoOutput.hpp       # Hailo NMS parsing, scaling and drawing
 │   ├── HailoMessages.hpp     # User-facing Hailo error messages
 │   ├── DetectionPipeline.hpp # Frame loop keeping several frames in flight
+│   ├── AsyncFrameWriter.hpp  # Encodes the output video on its own thread
 │   ├── DetectorFactory.hpp   # Backend selection + createDetector()
 │   ├── VideoHandler.hpp
 │   ├── AudioMux.hpp          # Audio passthrough into the output video (FFmpeg)
@@ -582,6 +583,7 @@ ObjectDetection/
 │   ├── HailoOutput.cpp
 │   ├── HailoMessages.cpp
 │   ├── DetectionPipeline.cpp
+│   ├── AsyncFrameWriter.cpp
 │   ├── DetectorFactory.cpp
 │   ├── VideoHandler.cpp
 │   ├── AudioMux.cpp
@@ -598,6 +600,7 @@ ObjectDetection/
     ├── test_hailo_messages.cpp     # Hailo error messages
     ├── test_hailo_inference.cpp    # End-to-end tests on the Hailo accelerator
     ├── test_detection_pipeline.cpp # Frame order and frames in flight
+    ├── test_async_frame_writer.cpp # Output writer thread
     └── *.MOV                 # Local, git-ignored test videos
 ```
 
@@ -614,6 +617,7 @@ ObjectDetection/
 | `Detection_Hailo`   | HailoRT backend for `.hef` models; async inference with up to four frames in flight |
 | `Detection_CoreAI`  | Core AI backend for YOLO26 on Apple Silicon (macOS 27+, Swift interop layer; falls back to ONNX Runtime) |
 | `detection_pipeline`| `run()` reads, detects and delivers frames in order, with up to `max_frames_in_flight()` frames in progress |
+| `AsyncFrameWriter`  | Writes the output frames on its own thread (bounded queue), so encoding overlaps with reading and detection |
 | `yolo26`            | `decode()` turns the quantized raw YOLO26 head outputs of a HEF into boxes (no ONNX postprocess model needed) |
 | `hailo_output`      | Parses Hailo NMS output, scales YOLO26 results to the frame and draws both with the shared `drawDetection()` |
 | `DetectorFactory`   | `createDetector()` builds the configured backend; `supportedBackendsFor()` encodes format↔backend compatibility (free functions) |
