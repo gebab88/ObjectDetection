@@ -36,7 +36,7 @@ input:
   video_input_file: "test.mov"
 
 output:
-  video_output_file: "output.avi"
+  video_output_file: "output.mp4"
 
 display:
   show_frames: false
