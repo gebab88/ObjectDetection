@@ -295,11 +295,16 @@ model:
   The asset is produced with the Ultralytics Core AI export:
 
 ```bash
-python3 -m ultralytics export model=yolo26x.pt format="coreai" imgsz=640
+python3 -m ultralytics export model=yolo26x.pt format="coreai" imgsz=640 quantize=16
 ```
 
   This writes `yolo26x.aimodel` (static graph exported at `imgsz`, raw YOLO26 head
-  output `(1, 84, 8400)` with host-side NMS). Keep the asset next to the ONNX files in
+  output `(1, 84, 8400)` with host-side NMS). `quantize=16` produces an **FP16**
+  asset (float16 weights, input and output; the backend converts the frame and the
+  output). It is strongly recommended: on an M5 Pro `yolo26x` runs at about 6.5 ms
+  per frame instead of 27 ms, and over a 1025-frame test video 99.7 % of the FP32
+  detections were found again (mean box IoU 0.997); the rest were objects with a
+  score right at the threshold. Leave out `quantize=16` for an FP32 asset. Keep the asset next to the ONNX files in
   the repository root and make sure the filename keeps the `yolo26` substring so the
   model format is detected correctly.
 
@@ -395,20 +400,36 @@ which backend is compiled in and selected:
   CoreML path remains the default and stays available for older targets and
   platforms.
 
-The Core AI backend keeps two frames in flight, each on its own worker thread,
-so the next inference starts while the previous frame is still being decoded,
-drawn and written. The model is specialized for the **GPU** by default, which
-was the fastest unit for the YOLO26 models measured (`yolo26x.aimodel` on an
-M5 Pro: about 28 ms per frame, versus 30 ms with Core AI's own choice and 33 ms
-with one frame at a time). Other units can be chosen with the
-`COREAI_COMPUTE_UNIT` environment variable; operators the chosen unit cannot run
-still fall back to the others:
+The Core AI backend keeps several frames in flight, each on its own worker
+thread, and runs them on fixed compute units ("lanes"). By default there are six
+lanes: GPU, GPU, Neural Engine, twice. The GPU gets two frames for each one on
+the Neural Engine because it is about twice as fast, and every lane appears twice
+so that one frame's preprocessing and decoding overlap the other's inference.
+Measured with `yolo26x` on an M5 Pro (ms per frame, whole test video):
+
+| Lanes (`COREAI_COMPUTE_UNIT`) | FP16 asset | FP32 asset |
+|---|---|---|
+| GPU + Neural Engine (default, `gpu+neural_engine`) | **6.5** | 27.1 |
+| GPU only (`gpu`, four lanes) | 9.0–9.5 | 27.3 |
+| one frame at a time on Core AI's choice (before) | – | 33.3 |
+
+FP32 models barely use the Neural Engine (its specialization runs mostly on the
+GPU), so the Neural Engine lanes mainly pay off with FP16 assets. The lanes can
+be changed with the `COREAI_COMPUTE_UNIT` environment variable; operators a unit
+cannot run still fall back to the others:
 
 ```bash
-COREAI_COMPUTE_UNIT=neural_engine ./build/ObjectDetection  # prefer the Neural Engine
-COREAI_COMPUTE_UNIT=all           ./build/ObjectDetection  # let Core AI pick
-COREAI_COMPUTE_UNIT=cpu           ./build/ObjectDetection  # CPU only
+COREAI_COMPUTE_UNIT=gpu           ./build/ObjectDetection  # four GPU lanes
+COREAI_COMPUTE_UNIT=neural_engine ./build/ObjectDetection  # four Neural Engine lanes
+COREAI_COMPUTE_UNIT=all           ./build/ObjectDetection  # four lanes, Core AI picks
+COREAI_COMPUTE_UNIT=cpu           ./build/ObjectDetection  # two CPU-only lanes
 ```
+
+> **Known Core AI issue:** with GPU and Neural Engine lanes running at the same
+> time, Core AI (macOS 27.2) occasionally returns an all-zero output for a GPU
+> inference of an FP16 model (about 1 in 1000). The backend detects this and
+> reruns the frame (`[CoreAI] Rerunning an all-zero output ...`, printed once).
+> It does not happen with a single unit (`COREAI_COMPUTE_UNIT=gpu`).
 
 When the Core AI backend is not compiled in (see the requirements above) or fails
 during initialisation, the application falls back to the ONNX Runtime backend.

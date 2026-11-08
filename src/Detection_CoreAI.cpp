@@ -14,7 +14,7 @@ Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
 
                                     Detection(score_threshold, model_shape, model_file),
                                     nms_threshold_(nms_threshold),
-                                    slots_(kFramesInFlight, "[CoreAI]") {
+                                    slots_(static_cast<std::size_t>(std::max<int64_t>(1, coreAIFramesInFlight())), "[CoreAI]") {
     // The Swift Core AI interop layer (AIModel / InferenceFunction / InferenceValue)
     // provides the `coreAIInfer` C entry point and is compiled and linked into this
     // binary when ENABLE_CORE_AI=ON on Apple Silicon (see the CMake option). The
@@ -41,6 +41,11 @@ void Detection_CoreAI::run(Scratch &slot, cv::Mat &frame) {
     // Resize, scale to [0,1], swap BGR->RGB and pack into a 1x3xHxW CHW float blob
     // in a single call. The Swift interop layer owns the AIModel load/specialisation
     // and runs inference on this input, reporting the raw output tensor.
+    // Each slot keeps one lane (and so one compute unit) for all its frames.
+    if (slot.lane < 0) {
+        slot.lane = next_lane_++;
+    }
+
     cv::dnn::blobFromImage(frame, slot.blob, 1.0 / 255.0, cv::Size(W, H), cv::Scalar(),
                            /*swapRB=*/true, /*crop=*/false);
 
@@ -71,7 +76,8 @@ void Detection_CoreAI::run(Scratch &slot, cv::Mat &frame) {
                            model_file_.c_str(), slot.output.data(),
                            static_cast<int64_t>(slot.output.size()),
                            &output_numel, output_shape.data(),
-                           static_cast<int64_t>(output_shape.size()), &output_rank);
+                           static_cast<int64_t>(output_shape.size()), &output_rank,
+                           slot.lane);
     };
     int status = infer();
     if (status == kStatusBufferTooSmall &&

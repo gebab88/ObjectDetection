@@ -3,6 +3,8 @@
 
 #include "Detection.hpp"
 #include "FrameSlots.hpp"
+#include <atomic>
+#include <cstdint>
 #include <future>
 #include <string>
 #include <vector>
@@ -38,7 +40,10 @@ struct CoreAITensor {
 //     (nonzero) instead of writing past output_shape when the rank exceeds
 //     output_shape_capacity, and likewise when the values exceed output_capacity.
 // The output is always delivered as dense row-major float32: float16 outputs are
-// converted and strided (non-contiguous) layouts are gathered.
+// converted and strided (non-contiguous) layouts are gathered. Float16 models
+// (FP16 exports) get the float32 input converted.
+//   - lane: which frame in flight this call belongs to (0 .. coreAIFramesInFlight()-1);
+//     it selects the compute unit the inference runs on (COREAI_COMPUTE_UNIT).
 // Returns 0 on success (an empty output with *output_numel == 0 is valid), 2 when
 // the output has more values than output_capacity (then *output_numel holds the
 // required count, nothing else is written, and the caller may retry with a larger
@@ -54,14 +59,20 @@ extern "C" int coreAIInfer(const float* input_data,
                            int64_t* output_numel,
                            int64_t* output_shape,
                            int64_t output_shape_capacity,
-                           int64_t* output_rank);
+                           int64_t* output_rank,
+                           int64_t lane);
+
+// Number of frames to keep in flight: one per compute lane configured in the
+// Swift layer (COREAI_COMPUTE_UNIT; GPU, GPU, Neural Engine, twice, by default).
+extern "C" int64_t coreAIFramesInFlight();
 
 // Core AI backend: preprocessing and decoding in C++, inference in Swift.
 //
-// Two frames are kept in flight, each on its own worker thread with its own
-// buffers: the GPU then gets the next inference while the previous frame is
-// still being decoded and drawn, and two concurrent inferences keep it busier
-// than back-to-back ones.
+// Several frames are kept in flight (one per compute lane of the Swift layer),
+// each on its own worker thread with its own buffers: the next inferences start
+// while earlier frames are still being decoded and drawn, concurrent inferences
+// keep the GPU busier than back-to-back ones, and a lane on the Neural Engine
+// adds a second accelerator.
 class Detection_CoreAI : public Detection {
     public:
     Detection_CoreAI(  const float score_threshold,
@@ -76,7 +87,6 @@ class Detection_CoreAI : public Detection {
 
     // Status returned by coreAIInfer when output_capacity is too small.
     static constexpr int kStatusBufferTooSmall = 2;
-    static constexpr std::size_t kFramesInFlight = 2;
 
     private:
     // Buffers of one frame in flight.
@@ -85,11 +95,13 @@ class Detection_CoreAI : public Detection {
         // Reused across frames; sized lazily from the model shape and grown when
         // the Swift layer reports a larger output (status kStatusBufferTooSmall).
         std::vector<float> output;
+        int64_t lane = -1;  // compute lane, assigned on the slot's first frame
     };
 
     void run(Scratch &slot, cv::Mat &frame);
 
     float nms_threshold_;
+    std::atomic<int64_t> next_lane_{0};
     FrameSlots<Scratch> slots_;  // last member: destroyed (and waited for) first
 };
 
