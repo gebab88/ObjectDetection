@@ -586,6 +586,7 @@ ObjectDetection/
 │   ├── HailoMessages.hpp     # User-facing Hailo error messages
 │   ├── DetectionPipeline.hpp # Frame loop keeping several frames in flight
 │   ├── AsyncFrameWriter.hpp  # Encodes the output video on its own thread
+│   ├── FrameSlots.hpp        # Worker thread + buffers per frame in flight (Core AI, ORT/CoreML)
 │   ├── DetectorFactory.hpp   # Backend selection + createDetector()
 │   ├── VideoHandler.hpp
 │   ├── AudioMux.hpp          # Audio passthrough into the output video (FFmpeg)
@@ -624,6 +625,7 @@ ObjectDetection/
     ├── test_hailo_inference.cpp    # End-to-end tests on the Hailo accelerator
     ├── test_detection_pipeline.cpp # Frame order and frames in flight
     ├── test_async_frame_writer.cpp # Output writer thread
+    ├── test_frame_slots.cpp        # Worker slots for frames in flight
     └── *.MOV                 # Local, git-ignored test videos
 ```
 

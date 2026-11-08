@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <array>
-#include <exception>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -14,7 +13,8 @@ Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
                                     const float nms_threshold) :
 
                                     Detection(score_threshold, model_shape, model_file),
-                                    nms_threshold_(nms_threshold) {
+                                    nms_threshold_(nms_threshold),
+                                    slots_(kFramesInFlight, "[CoreAI]") {
     // The Swift Core AI interop layer (AIModel / InferenceFunction / InferenceValue)
     // provides the `coreAIInfer` C entry point and is compiled and linked into this
     // binary when ENABLE_CORE_AI=ON on Apple Silicon (see the CMake option). The
@@ -22,9 +22,6 @@ Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
     // failure surfaces through the usual unsupported-shape path in `detect`; there is
     // no C++ placeholder entry point any more, so no initialisation probe is needed
     // here.
-    for (std::size_t i = 0; i < kFramesInFlight; ++i) {
-        slots_.push_back(std::make_unique<Slot>());
-    }
 }
 
 void Detection_CoreAI::detect(cv::Mat &frame) {
@@ -32,36 +29,12 @@ void Detection_CoreAI::detect(cv::Mat &frame) {
 }
 
 std::future<void> Detection_CoreAI::detect_async(cv::Mat frame) {
-    Slot &slot = *slots_[next_slot_];
-    if (slot.busy.exchange(true)) {
-        throw std::logic_error("[CoreAI] more than max_frames_in_flight() frames in flight");
-    }
-    next_slot_ = (next_slot_ + 1) % slots_.size();
-
     // The whole frame (preprocessing, inference, decoding, drawing) runs on a
-    // worker thread. The slot is released before the caller's future becomes
-    // ready, so the caller may reuse it as soon as it has collected the frame.
-    auto finished = std::make_shared<std::promise<void>>();
-    std::future<void> result = finished->get_future();
-    try {
-        slot.done = std::async(std::launch::async, [this, &slot, frame, finished]() mutable {
-            try {
-                run(slot, frame);
-                slot.busy = false;
-                finished->set_value();
-            } catch (...) {
-                slot.busy = false;
-                finished->set_exception(std::current_exception());
-            }
-        });
-    } catch (...) {
-        slot.busy = false;  // no thread started (std::system_error)
-        throw;
-    }
-    return result;
+    // worker thread.
+    return slots_.submit(frame, [this](Scratch &slot, cv::Mat &f) { run(slot, f); });
 }
 
-void Detection_CoreAI::run(Slot &slot, cv::Mat &frame) {
+void Detection_CoreAI::run(Scratch &slot, cv::Mat &frame) {
     const int W = static_cast<int>(model_shape_.width);
     const int H = static_cast<int>(model_shape_.height);
 

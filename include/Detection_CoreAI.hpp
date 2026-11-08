@@ -2,9 +2,8 @@
 #define OBJECTDETECTION_DETECTIONHANDLER_COREAI_HPP
 
 #include "Detection.hpp"
-#include <atomic>
+#include "FrameSlots.hpp"
 #include <future>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -69,7 +68,7 @@ class Detection_CoreAI : public Detection {
                        const cv::Size2f model_shape,
                        const std::string &model_file,
                        const float nms_threshold);
-    ~Detection_CoreAI() override = default;  // each slot waits for its frame
+    ~Detection_CoreAI() override = default;  // slots_ waits for its frames
 
     void detect(cv::Mat &frame) override;
     std::size_t max_frames_in_flight() const override { return slots_.size(); }
@@ -81,20 +80,17 @@ class Detection_CoreAI : public Detection {
 
     private:
     // Buffers of one frame in flight.
-    struct Slot {
+    struct Scratch {
         cv::Mat blob;
         // Reused across frames; sized lazily from the model shape and grown when
         // the Swift layer reports a larger output (status kStatusBufferTooSmall).
         std::vector<float> output;
-        std::atomic<bool> busy{false};
-        std::future<void> done;  // last member: waited for before the buffers go
     };
 
-    void run(Slot &slot, cv::Mat &frame);
+    void run(Scratch &slot, cv::Mat &frame);
 
     float nms_threshold_;
-    std::vector<std::unique_ptr<Slot>> slots_;
-    std::size_t next_slot_ = 0;
+    FrameSlots<Scratch> slots_;  // last member: destroyed (and waited for) first
 };
 
 #endif //OBJECTDETECTION_DETECTIONHANDLER_COREAI_HPP

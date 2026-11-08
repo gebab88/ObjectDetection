@@ -471,6 +471,7 @@ if(BUILD_TESTING)
         add_executable(tests_runner tests/test_framework.cpp tests/test_yolo26_decoder.cpp
                                     tests/test_detection_pipeline.cpp tests/test_hailo_output.cpp
                                     tests/test_hailo_messages.cpp tests/test_async_frame_writer.cpp
+                                    tests/test_frame_slots.cpp
                                     src/VideoHandler.cpp src/Yolo26Decoder.cpp src/HailoOutput.cpp
                                     src/HailoMessages.cpp src/AsyncFrameWriter.cpp
                                     src/Detection.cpp src/DetectionPipeline.cpp)
