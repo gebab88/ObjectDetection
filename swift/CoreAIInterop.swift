@@ -26,7 +26,7 @@ actor CoreAIState {
             return try await task.value
         }
         let task = Task<InferenceFunction, Error> {
-            let model = try await AIModel(contentsOf: URL(fileURLWithPath: path), options: .default)
+            let model = try await AIModel(contentsOf: URL(fileURLWithPath: path), options: specializationOptions())
             guard let function = try model.loadFunction(named: "main") else {
                 throw NSError(domain: "CoreAI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Core AI model function not found"])
             }
@@ -45,6 +45,37 @@ actor CoreAIState {
             throw error
         }
     }
+}
+
+// Compute unit the model is specialized for, from COREAI_COMPUTE_UNIT:
+//   gpu (default), neural_engine, cpu, or all (let Core AI pick).
+// The GPU is the default because it was the fastest unit for the YOLO26 models
+// measured (yolo26x on an M5 Pro: 28 ms per frame on the GPU, 30 ms with Core
+// AI's own choice, with two frames in flight); smaller models may run better on
+// the Neural Engine. Unsupported operations still fall back to the other units.
+private func specializationOptions() -> SpecializationOptions {
+    let value = ProcessInfo.processInfo.environment["COREAI_COMPUTE_UNIT"]?.lowercased() ?? "gpu"
+    let options: SpecializationOptions
+    let label: String
+    switch value {
+    case "", "gpu":
+        options = SpecializationOptions(preferredComputeUnitKind: .gpu)
+        label = "GPU"
+    case "neural_engine", "ane":
+        options = SpecializationOptions(preferredComputeUnitKind: .neuralEngine)
+        label = "Neural Engine"
+    case "cpu":
+        options = .cpuOnly
+        label = "CPU only"
+    case "all":
+        options = .default
+        label = "Core AI's choice"
+    default:
+        options = SpecializationOptions(preferredComputeUnitKind: .gpu)
+        label = "GPU (unknown COREAI_COMPUTE_UNIT '\(value)'; use gpu, neural_engine, cpu or all)"
+    }
+    FileHandle.standardError.write(Data("[CoreAI] Compute unit: \(label)\n".utf8))
+    return options
 }
 
 private func coreAIError(_ code: Int, _ message: String) -> NSError {
@@ -106,11 +137,14 @@ private func imageInputName(of function: InferenceFunction, shape: [Int]) throws
     return name
 }
 
-// Copies an output tensor into a dense row-major float32 array. Core AI may hand
-// back float16 tensors and non-contiguous layouts (strides are in elements), so
-// both the scalar type and the strides are honoured instead of assuming packed
-// float32 data.
-private func denseFloats(from arr: NDArray) throws -> [Float] {
+// Copies an output tensor as dense row-major float32 straight into the caller's
+// buffer `dst` (no intermediate array) and returns the number of values. If they
+// do not fit into `capacity`, nothing is written and the required count is
+// returned with `fits == false`. Core AI may hand back float16 tensors and
+// non-contiguous layouts (strides are in elements), so both the scalar type and
+// the strides are honoured instead of assuming packed float32 data.
+private func copyDenseFloats(from arr: NDArray, into dst: UnsafeMutablePointer<Float>,
+                             capacity: Int) throws -> (count: Int, fits: Bool) {
     let shape = arr.shape
     let rank = shape.count
     let scalarType = arr.scalarType
@@ -120,7 +154,8 @@ private func denseFloats(from arr: NDArray) throws -> [Float] {
 
     var numel = 1
     for v in shape { numel *= v }
-    guard numel > 0 else { return [] }
+    guard numel > 0 else { return (0, true) }
+    guard numel <= capacity else { return (numel, false) }
 
     // Contiguous row-major strides, used when the tensor reports none.
     var contiguous = [Int](repeating: 1, count: rank)
@@ -135,14 +170,11 @@ private func denseFloats(from arr: NDArray) throws -> [Float] {
     }
     let strides = reported.isEmpty ? contiguous : reported
 
-    var floats = [Float](repeating: 0, count: numel)
     let raw = arr.rawView()
     raw.withUnsafeBytes { rawPtr, _, _ in
         if scalarType == .float32 && strides == contiguous {
             // Fast path: packed float32, copy in one go.
-            floats.withUnsafeMutableBytes { dst in
-                dst.baseAddress!.copyMemory(from: rawPtr, byteCount: numel * MemoryLayout<Float>.stride)
-            }
+            UnsafeMutableRawPointer(dst).copyMemory(from: rawPtr, byteCount: numel * MemoryLayout<Float>.stride)
             return
         }
         // General path: walk the logical indices in row-major order and gather
@@ -152,9 +184,9 @@ private func denseFloats(from arr: NDArray) throws -> [Float] {
             var offset = 0
             for d in 0..<rank { offset += index[d] * strides[d] }
             if scalarType == .float32 {
-                floats[linear] = rawPtr.load(fromByteOffset: offset * MemoryLayout<Float>.stride, as: Float.self)
+                dst[linear] = rawPtr.load(fromByteOffset: offset * MemoryLayout<Float>.stride, as: Float.self)
             } else {
-                floats[linear] = Float(rawPtr.load(fromByteOffset: offset * MemoryLayout<Float16>.stride, as: Float16.self))
+                dst[linear] = Float(rawPtr.load(fromByteOffset: offset * MemoryLayout<Float16>.stride, as: Float16.self))
             }
             var d = rank - 1
             while d >= 0 {
@@ -165,7 +197,7 @@ private func denseFloats(from arr: NDArray) throws -> [Float] {
             }
         }
     }
-    return floats
+    return (numel, true)
 }
 
 @_cdecl("coreAIInfer")
@@ -223,7 +255,10 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
     // background task and the caller blocks until it completes.
     let path = String(cString: modelPath)
     let sem = DispatchSemaphore(value: 0)
-    var outcome: [Float]? = nil
+    let capacity = Int(outputCapacity)
+    let shapeCapacity = Int(outputShapeCapacity)
+    var valueCount = 0
+    var fits = false
     var taskErr: Error? = nil
     var outShape: [Int64] = []
     Task {
@@ -238,7 +273,15 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
             guard let name = function.descriptor.outputNames.first ?? o.names.first,
                   let value = o.remove(name) else { throw coreAIError(2, "Core AI inference returned no value") }
             guard let arr = value.ndArray else { throw coreAIError(3, "Core AI inference output '\(name)' is not a tensor") }
-            outcome = try denseFloats(from: arr)
+            // Never write past the caller's buffers. Too many dimensions is an
+            // error; too many values is not: the required count is reported with
+            // status 2 so the caller can grow its buffer and call again (the output
+            // size depends on the model's input size and class count, which the
+            // caller cannot know up front).
+            guard arr.shape.count <= shapeCapacity else {
+                throw coreAIError(9, "Core AI output has rank \(arr.shape.count); at most \(shapeCapacity) dimensions are supported")
+            }
+            (valueCount, fits) = try copyDenseFloats(from: arr, into: outputData, capacity: capacity)
             outShape = arr.shape.map { Int64($0) }
         } catch {
             taskErr = error
@@ -250,27 +293,12 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
         CoreAIErrorLog.shared.report(taskErr)
         return -1
     }
-    guard let floats = outcome else { return -1 }
-    // Never write past the caller's buffers. Too many dimensions is an error; too
-    // many values is not: report the required count with status 2 so the caller
-    // can grow its buffer and call again (the output size depends on the model's
-    // input size and class count, which the caller cannot know up front).
-    guard outShape.count <= Int(outputShapeCapacity) else {
-        CoreAIErrorLog.shared.report(coreAIError(9, "Core AI output has rank \(outShape.count); at most \(outputShapeCapacity) dimensions are supported"))
-        return -1
-    }
-    if floats.count > Int(outputCapacity) {
-        outputNumel[0] = Int64(floats.count)
+    outputNumel[0] = Int64(valueCount)
+    if !fits {
         return 2
     }
     // An empty output (e.g. an end-to-end head with zero detections) is a valid
     // result, not a failure.
-    if !floats.isEmpty {
-        floats.withUnsafeBufferPointer { src in
-            outputData.update(from: src.baseAddress!, count: src.count)
-        }
-    }
-    outputNumel[0] = Int64(floats.count)
     for i in 0..<outShape.count {
         outputShape[i] = outShape[i]
     }

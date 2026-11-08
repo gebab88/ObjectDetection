@@ -1,6 +1,6 @@
 # ObjectDetection
 
-Real-time object detection pipeline for video files and webcams, based on YOLO models. Supports five inference backends: **OpenCV DNN**, **ONNX Runtime**, **OpenVINO**, **Hailo**, and **Core AI** – with optional hardware acceleration via CoreML (macOS), XNNPACK (ARM/Linux), the Apple Neural Engine (via Core AI on Apple Silicon), and HAILO10H HEF models.
+Real-time object detection pipeline for video files and webcams, based on YOLO models. Supports five inference backends: **OpenCV DNN**, **ONNX Runtime**, **OpenVINO**, **Hailo**, and **Core AI** – with optional hardware acceleration via CoreML (macOS), XNNPACK (ARM/Linux), Apple Core AI (GPU / Neural Engine on Apple Silicon), and HAILO10H HEF models.
 
 ---
 
@@ -8,7 +8,7 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 - **Multi-Backend**: Switch between OpenCV DNN, ONNX Runtime, OpenVINO, Hailo and Core AI via `config.yaml` (a detector factory validates the choice against the model format)
 - **Multi-Source**: Process video files (`.mp4`, `.mov`, …) or live webcam streams
-- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux), HailoRT and Core AI (Apple Neural Engine, macOS 27+ / Xcode 27, built automatically when available)
+- **Hardware Acceleration**: CoreML (Apple Silicon / Neural Engine), XNNPACK (ARM Linux), HailoRT and Core AI (GPU / Neural Engine, macOS 27+ / Xcode 27, built automatically when available)
 - **YOLO / HEF Support**: YOLOE open-vocabulary exports, YOLO v12 raw output, YOLO v26 end-to-end or raw output and Hailo HEF models
 - **Video Output**: Processed frames with bounding boxes are written to the configured output file
 - **Audio Passthrough**: The sound of an input video file is copied unchanged into the output (requires the FFmpeg libraries, see [Audio Passthrough](#audio-passthrough))
@@ -384,11 +384,26 @@ which backend is compiled in and selected:
   `.ort_coreml_cache/` next to the model file.
 - **Core AI** (built automatically when available, see [Core AI Backend](#core-ai-backend-apple-platforms)):
   Apple's newer **Core AI** framework (WWDC 2026, iOS 27.0+ / macOS 27.0+, Apple
-  Silicon, Xcode 27) runs inference on the Neural Engine through the Swift interop
-  layer (`AIModel` / `InferenceFunction` / `InferenceValue`, ahead-of-time
-  compiled `.aimodel` assets, unified CPU/GPU/Neural Engine runtime). The existing
-  ONNX Runtime / CoreML path remains the default and stays available for older
-  targets and platforms.
+  Silicon, Xcode 27) runs inference through the Swift interop layer (`AIModel` /
+  `InferenceFunction` / `InferenceValue`, ahead-of-time compiled `.aimodel`
+  assets, unified CPU/GPU/Neural Engine runtime). The existing ONNX Runtime /
+  CoreML path remains the default and stays available for older targets and
+  platforms.
+
+The Core AI backend keeps two frames in flight, each on its own worker thread,
+so the next inference starts while the previous frame is still being decoded,
+drawn and written. The model is specialized for the **GPU** by default, which
+was the fastest unit for the YOLO26 models measured (`yolo26x.aimodel` on an
+M5 Pro: about 28 ms per frame, versus 30 ms with Core AI's own choice and 33 ms
+with one frame at a time). Other units can be chosen with the
+`COREAI_COMPUTE_UNIT` environment variable; operators the chosen unit cannot run
+still fall back to the others:
+
+```bash
+COREAI_COMPUTE_UNIT=neural_engine ./build/ObjectDetection  # prefer the Neural Engine
+COREAI_COMPUTE_UNIT=all           ./build/ObjectDetection  # let Core AI pick
+COREAI_COMPUTE_UNIT=cpu           ./build/ObjectDetection  # CPU only
+```
 
 When the Core AI backend is not compiled in (see the requirements above) or fails
 during initialisation, the application falls back to the ONNX Runtime backend.
