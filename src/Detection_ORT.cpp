@@ -66,12 +66,12 @@ void pinFreeInputDimensions(Ort::SessionOptions& opts, const Ort::Env& env,
 
 Ort::SessionOptions Detection_ORT::make_session_opts(const Ort::Env& env,
                                                      const std::string& model_file,
-                                                     cv::Size2f model_shape) {
+                                                     cv::Size2f model_shape,
+                                                     bool& coreml_enabled) {
     Ort::SessionOptions opts;
+    coreml_enabled = false;
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
-
-    bool coreml_enabled = false;
 
 #if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
     pinFreeInputDimensions(opts, env, model_file, model_shape);
@@ -147,12 +147,13 @@ Detection_ORT::Detection_ORT(float score_threshold,
 
                             Detection(score_threshold, model_shape, model_file),
                             env_(Ort::Env(ORT_LOGGING_LEVEL_ERROR, "yolo")),
-                            session_opts_(make_session_opts(env_, model_file, model_shape)),
+                            session_opts_(make_session_opts(env_, model_file, model_shape, coreml_enabled_)),
                             allocator_(),
                             session_(env_, model_file_.c_str(), session_opts_),
                             input_name_(session_.GetInputNameAllocated(0, allocator_).get()),
                             nms_threshold_(nms_threshold),
-                            memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
+                            memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
+                            slots_(coreml_enabled_ ? 2 : 1, "[ONNX Runtime]") {
 
     const size_t output_count = session_.GetOutputCount();
     output_names_.reserve(output_count);
@@ -174,18 +175,29 @@ Detection_ORT::Detection_ORT(float score_threshold,
         std::cout << "  - " << p << "\n";
 }
 
-void Detection_ORT::detect( cv::Mat &frame) {
+void Detection_ORT::detect(cv::Mat &frame) {
+    run(blob_, frame);
+}
+
+std::future<void> Detection_ORT::detect_async(cv::Mat frame) {
+    if (slots_.size() <= 1) {
+        return Detection::detect_async(frame);  // synchronous, on the caller's thread
+    }
+    return slots_.submit(frame, [this](Scratch &slot, cv::Mat &f) { run(slot.blob, f); });
+}
+
+void Detection_ORT::run(cv::Mat &blob, cv::Mat &frame) {
     const int W = static_cast<int>(model_shape_.width);
     const int H = static_cast<int>(model_shape_.height);
 
     // Resize, scale to [0,1], swap BGR->RGB and pack into a 1x3xHxW CHW float blob
     // in a single call; the ORT input tensor wraps the blob's buffer directly.
-    cv::dnn::blobFromImage(frame, blob_, 1.0 / 255.0, cv::Size(W, H), cv::Scalar(),
+    cv::dnn::blobFromImage(frame, blob, 1.0 / 255.0, cv::Size(W, H), cv::Scalar(),
                            /*swapRB=*/true, /*crop=*/false);
 
     std::array<int64_t, 4> input_shape = {1, 3, static_cast<int64_t>(H), static_cast<int64_t>(W)};
     Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info_,
-                                                            blob_.ptr<float>(), blob_.total(),
+                                                            blob.ptr<float>(), blob.total(),
                                                             input_shape.data(), input_shape.size() );
     const char* in_names[]  = { input_name_.c_str()  };
 
@@ -250,11 +262,7 @@ void Detection_ORT::detect( cv::Mat &frame) {
     }
 
     if (shape.size() != 3) {
-        static bool warned = false;
-        if (!warned) {
-            std::cerr << "Unsupported ONNX output shape for detection." << std::endl;
-            warned = true;
-        }
+        yolo_postprocess::warnUnsupportedShape("ONNX Runtime", shape);
         return;
     }
 

@@ -358,6 +358,11 @@ before the session is created (`[Provider] Pinned dynamic input dimension ...`).
 For `yolo26x.onnx` on an M5 Pro this is the difference between about 310 ms
 (CPU) and 33 ms (GPU via CoreML) per frame.
 
+With CoreML the backend also keeps two frames in flight, each on its own worker
+thread, so the next inference starts while the previous frame is decoded and
+drawn (`yolo26x.onnx`: 32.9 → 31.7 ms per frame; a third frame gains nothing).
+CPU-only sessions already use all cores per frame and stay synchronous.
+
 By default, CoreML is allowed to use **all** compute units — CPU, GPU and the
 Apple Neural Engine (ANE) — and picks where to run each operator itself. You can
 restrict which units it may use via the `ORT_COREML_COMPUTE_UNITS` environment
