@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -453,7 +454,10 @@ inline void warnUnsupportedShape(const char* backend, const std::vector<int64_t>
     }
     message += "]";
 
+    // Backends may decode several frames at once (Core AI worker threads).
+    static std::mutex mutex;
     static std::set<std::string> warned;
+    std::lock_guard<std::mutex> lock(mutex);
     if (warned.insert(message).second) {
         std::cerr << message << std::endl;
     }

@@ -2,6 +2,9 @@
 #define OBJECTDETECTION_DETECTIONHANDLER_COREAI_HPP
 
 #include "Detection.hpp"
+#include <atomic>
+#include <future>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -54,24 +57,44 @@ extern "C" int coreAIInfer(const float* input_data,
                            int64_t output_shape_capacity,
                            int64_t* output_rank);
 
+// Core AI backend: preprocessing and decoding in C++, inference in Swift.
+//
+// Two frames are kept in flight, each on its own worker thread with its own
+// buffers: the GPU then gets the next inference while the previous frame is
+// still being decoded and drawn, and two concurrent inferences keep it busier
+// than back-to-back ones.
 class Detection_CoreAI : public Detection {
     public:
     Detection_CoreAI(  const float score_threshold,
                        const cv::Size2f model_shape,
                        const std::string &model_file,
                        const float nms_threshold);
-    ~Detection_CoreAI() override = default;
+    ~Detection_CoreAI() override = default;  // each slot waits for its frame
 
     void detect(cv::Mat &frame) override;
+    std::size_t max_frames_in_flight() const override { return slots_.size(); }
+    std::future<void> detect_async(cv::Mat frame) override;
 
     // Status returned by coreAIInfer when output_capacity is too small.
     static constexpr int kStatusBufferTooSmall = 2;
+    static constexpr std::size_t kFramesInFlight = 2;
 
     private:
+    // Buffers of one frame in flight.
+    struct Slot {
+        cv::Mat blob;
+        // Reused across frames; sized lazily from the model shape and grown when
+        // the Swift layer reports a larger output (status kStatusBufferTooSmall).
+        std::vector<float> output;
+        std::atomic<bool> busy{false};
+        std::future<void> done;  // last member: waited for before the buffers go
+    };
+
+    void run(Slot &slot, cv::Mat &frame);
+
     float nms_threshold_;
-    // Reused across frames; sized lazily from the model shape and grown when the
-    // Swift layer reports a larger output (status kStatusBufferTooSmall).
-    std::vector<float> output_buffer_;
+    std::vector<std::unique_ptr<Slot>> slots_;
+    std::size_t next_slot_ = 0;
 };
 
 #endif //OBJECTDETECTION_DETECTIONHANDLER_COREAI_HPP

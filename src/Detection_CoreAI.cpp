@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -21,16 +22,53 @@ Detection_CoreAI::Detection_CoreAI(  const float score_threshold,
     // failure surfaces through the usual unsupported-shape path in `detect`; there is
     // no C++ placeholder entry point any more, so no initialisation probe is needed
     // here.
+    for (std::size_t i = 0; i < kFramesInFlight; ++i) {
+        slots_.push_back(std::make_unique<Slot>());
+    }
 }
 
-void Detection_CoreAI::detect( cv::Mat &frame) {
+void Detection_CoreAI::detect(cv::Mat &frame) {
+    detect_async(frame).get();
+}
+
+std::future<void> Detection_CoreAI::detect_async(cv::Mat frame) {
+    Slot &slot = *slots_[next_slot_];
+    if (slot.busy.exchange(true)) {
+        throw std::logic_error("[CoreAI] more than max_frames_in_flight() frames in flight");
+    }
+    next_slot_ = (next_slot_ + 1) % slots_.size();
+
+    // The whole frame (preprocessing, inference, decoding, drawing) runs on a
+    // worker thread. The slot is released before the caller's future becomes
+    // ready, so the caller may reuse it as soon as it has collected the frame.
+    auto finished = std::make_shared<std::promise<void>>();
+    std::future<void> result = finished->get_future();
+    try {
+        slot.done = std::async(std::launch::async, [this, &slot, frame, finished]() mutable {
+            try {
+                run(slot, frame);
+                slot.busy = false;
+                finished->set_value();
+            } catch (...) {
+                slot.busy = false;
+                finished->set_exception(std::current_exception());
+            }
+        });
+    } catch (...) {
+        slot.busy = false;  // no thread started (std::system_error)
+        throw;
+    }
+    return result;
+}
+
+void Detection_CoreAI::run(Slot &slot, cv::Mat &frame) {
     const int W = static_cast<int>(model_shape_.width);
     const int H = static_cast<int>(model_shape_.height);
 
     // Resize, scale to [0,1], swap BGR->RGB and pack into a 1x3xHxW CHW float blob
     // in a single call. The Swift interop layer owns the AIModel load/specialisation
     // and runs inference on this input, reporting the raw output tensor.
-    cv::dnn::blobFromImage(frame, blob_, 1.0 / 255.0, cv::Size(W, H), cv::Scalar(),
+    cv::dnn::blobFromImage(frame, slot.blob, 1.0 / 255.0, cv::Size(W, H), cv::Scalar(),
                            /*swapRB=*/true, /*crop=*/false);
 
     std::array<int64_t, 4> input_shape = {1, 3, static_cast<int64_t>(H), static_cast<int64_t>(W)};
@@ -40,13 +78,13 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
     // 8400 * 84 for 640x640 and 80 classes. End-to-end outputs (1, N, 6) are far
     // smaller. Anything larger (more classes, extra fields) is handled by the
     // grow-and-retry below, so this is only a starting point.
-    if (output_buffer_.empty()) {
+    if (slot.output.empty()) {
         int64_t anchors = 0;
         for (const int stride : {8, 16, 32}) {
             anchors += static_cast<int64_t>((H + stride - 1) / stride) * ((W + stride - 1) / stride);
         }
         const int64_t fields = 4 + std::max<int64_t>(static_cast<int64_t>(class_list_.size()), 80);
-        output_buffer_.resize(static_cast<size_t>(anchors * fields));
+        slot.output.resize(static_cast<size_t>(anchors * fields));
     }
 
     int64_t output_numel = 0;
@@ -55,19 +93,19 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
     std::array<int64_t, 8> output_shape = {};
     int64_t output_rank = 0;
     const auto infer = [&]() {
-        return coreAIInfer(blob_.ptr<float>(), static_cast<int64_t>(blob_.total()),
+        return coreAIInfer(slot.blob.ptr<float>(), static_cast<int64_t>(slot.blob.total()),
                            input_shape.data(), static_cast<int64_t>(input_shape.size()),
-                           model_file_.c_str(), output_buffer_.data(),
-                           static_cast<int64_t>(output_buffer_.size()),
+                           model_file_.c_str(), slot.output.data(),
+                           static_cast<int64_t>(slot.output.size()),
                            &output_numel, output_shape.data(),
                            static_cast<int64_t>(output_shape.size()), &output_rank);
     };
     int status = infer();
     if (status == kStatusBufferTooSmall &&
-        output_numel > static_cast<int64_t>(output_buffer_.size())) {
+        output_numel > static_cast<int64_t>(slot.output.size())) {
         // The output is larger than estimated: grow once to the reported size and
         // rerun this frame. The buffer is kept, so later frames need one call only.
-        output_buffer_.resize(static_cast<size_t>(output_numel));
+        slot.output.resize(static_cast<size_t>(output_numel));
         status = infer();
     }
     if (status != 0) {
@@ -92,7 +130,7 @@ void Detection_CoreAI::detect( cv::Mat &frame) {
     }
 
     CoreAITensor output;
-    output.data = output_buffer_.data();
+    output.data = slot.output.data();
     output.numel = output_numel;
     output.shape = reported_shape;
 
