@@ -9,8 +9,64 @@
 #include <system_error>
 #include <thread>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
-Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_file) {
+#if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
+namespace {
+
+// The CoreML EP only takes nodes whose shapes are fully known
+// (RequireStaticInputShapes). Exports with a dynamic batch (and sometimes
+// dynamic height/width) therefore leave every node on the CPU, and with one
+// intra-op thread a large model runs about ten times slower than on the GPU.
+// Pin those free dimensions to what this program feeds anyway: batch 1 and the
+// configured model size. The input shapes are read from a lightweight probe
+// session, since session options must be complete before the real session is
+// created. If the probe fails, nothing is pinned and the real session reports
+// the problem.
+void pinFreeInputDimensions(Ort::SessionOptions& opts, const Ort::Env& env,
+                            const std::string& model_file, cv::Size2f model_shape) {
+    std::vector<std::pair<std::string, int64_t>> pins;
+    try {
+        Ort::SessionOptions probe_opts;
+        probe_opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_DISABLE_ALL);
+        probe_opts.SetIntraOpNumThreads(1);
+        Ort::Session probe(env, model_file.c_str(), probe_opts);
+        for (size_t i = 0; i < probe.GetInputCount(); ++i) {
+            const Ort::TypeInfo type_info = probe.GetInputTypeInfo(i);
+            const auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+            const std::vector<int64_t> shape = tensor_info.GetShape();
+            std::vector<const char*> names(shape.size(), nullptr);
+            tensor_info.GetSymbolicDimensions(names.data(), names.size());
+            for (size_t d = 0; d < shape.size(); ++d) {
+                if (shape[d] >= 0 || names[d] == nullptr || *names[d] == '\0') continue;
+                int64_t value = 0;
+                if (d == 0) {
+                    value = 1;  // batch
+                } else if (shape.size() == 4 && d == 2) {
+                    value = static_cast<int64_t>(model_shape.height);
+                } else if (shape.size() == 4 && d == 3) {
+                    value = static_cast<int64_t>(model_shape.width);
+                }
+                if (value > 0) pins.emplace_back(names[d], value);
+            }
+        }
+    } catch (const Ort::Exception&) {
+        return;
+    }
+    for (const auto& [name, value] : pins) {
+        opts.AddFreeDimensionOverrideByName(name.c_str(), value);
+        std::cout << "[Provider] Pinned dynamic input dimension '" << name << "' to " << value
+                  << " for CoreML." << std::endl;
+    }
+}
+
+}  // namespace
+#endif
+
+Ort::SessionOptions Detection_ORT::make_session_opts(const Ort::Env& env,
+                                                     const std::string& model_file,
+                                                     cv::Size2f model_shape) {
     Ort::SessionOptions opts;
     opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
@@ -18,6 +74,8 @@ Ort::SessionOptions Detection_ORT::make_session_opts(const std::string& model_fi
     bool coreml_enabled = false;
 
 #if defined(__APPLE__) && defined(ENABLE_ORT_COREML)
+    pinFreeInputDimensions(opts, env, model_file, model_shape);
+
     std::unordered_map<std::string, std::string> coreml_options;
     coreml_options[kCoremlProviderOption_ModelFormat] = "MLProgram";
     coreml_options[kCoremlProviderOption_RequireStaticInputShapes] = "1";
@@ -89,7 +147,7 @@ Detection_ORT::Detection_ORT(float score_threshold,
 
                             Detection(score_threshold, model_shape, model_file),
                             env_(Ort::Env(ORT_LOGGING_LEVEL_ERROR, "yolo")),
-                            session_opts_(make_session_opts(model_file)),
+                            session_opts_(make_session_opts(env_, model_file, model_shape)),
                             allocator_(),
                             session_(env_, model_file_.c_str(), session_opts_),
                             input_name_(session_.GetInputNameAllocated(0, allocator_).get()),

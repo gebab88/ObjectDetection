@@ -25,7 +25,9 @@ class Detection_ORT : public Detection {
     void detect(cv::Mat &frame) override;
 
     private:
-    static Ort::SessionOptions make_session_opts(const std::string& model_file);
+    static Ort::SessionOptions make_session_opts(const Ort::Env& env,
+                                                 const std::string& model_file,
+                                                 cv::Size2f model_shape);
     
     Ort::Env                          env_;
     Ort::SessionOptions               session_opts_;

@@ -350,6 +350,14 @@ file, so the (slow) first-run compilation is reused on later runs regardless of
 the working directory. If that directory cannot be created (e.g. a read-only
 model location), the program warns and runs without a persistent cache.
 
+CoreML only takes operators whose tensor shapes are fully known. Many ONNX
+exports declare a dynamic batch size (and sometimes dynamic height/width), which
+would leave the whole model on the CPU. The program therefore pins such dynamic
+input dimensions to batch 1 and the configured `model_width`/`model_height`
+before the session is created (`[Provider] Pinned dynamic input dimension ...`).
+For `yolo26x.onnx` on an M5 Pro this is the difference between about 310 ms
+(CPU) and 33 ms (GPU via CoreML) per frame.
+
 By default, CoreML is allowed to use **all** compute units — CPU, GPU and the
 Apple Neural Engine (ANE) — and picks where to run each operator itself. You can
 restrict which units it may use via the `ORT_COREML_COMPUTE_UNITS` environment
