@@ -389,6 +389,28 @@ yolo export model=yolo26x.pt format=coreai imgsz=640 quantize=16
   the repository root and make sure the filename keeps the `yolo26` substring so the
   model format is detected correctly.
 
+  For smaller assets, `export_coreai.py` exports with INT8 or INT4 weights
+  (weight-only quantization through coreai-torch; activations, input and output
+  stay FP16, so the backend runs them unchanged). The Ultralytics export itself
+  offers only FP32 and FP16:
+
+```bash
+python3 export_coreai.py --weights yolo26x.pt --quantize 8   # writes yolo26x_q8.aimodel
+python3 export_coreai.py --weights yolo26x.pt --quantize 4   # writes yolo26x_q4.aimodel
+```
+
+  Measured with `yolo26x` on an M5 Pro (accuracy from `yolo val` on coco128, timing
+  from the app on the 1025-frame test video):
+
+  | Weights | Size | Time per frame | mAP50 | mAP50-95 |
+  |---|---|---|---|---|
+  | FP16 | 107 MB | 6.4 ms | 0.817 | 0.661 |
+  | INT8 | 54 MB | 6.7 ms | 0.818 | 0.660 |
+  | INT4 | 29 MB | 12.5 ms | 0.771 | 0.591 |
+
+  INT8 keeps the accuracy at half the size but is not faster; INT4 loses accuracy
+  and runs slower on the GPU. FP16 stays the default for speed.
+
   > **Note:** the ONNX Runtime backend consumes ONNX-format assets and cannot run
   > `.aimodel` packages. The automatic fallback therefore maps an `.aimodel`
   > selection to its ONNX counterpart (e.g. `yolo26x.aimodel` → `yolo26x.onnx`) and
@@ -678,6 +700,7 @@ ObjectDetection/
 ├── CMakeLists.txt
 ├── config.example.yaml       # Sample runtime config (copy to config.yaml)
 ├── export.py                 # YOLOE ONNX export helper
+├── export_coreai.py          # Core AI export with FP16, INT8 or INT4 weights
 ├── coco.txt                  # COCO class names (80 classes)
 ├── coco.yaml                 # COCO dataset config
 ├── yoloe_classes.txt         # YOLOE export/runtime classes
