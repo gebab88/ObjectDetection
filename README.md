@@ -64,9 +64,9 @@ section with the details and the optional backends.
    ```bash
    python3 -m pip install ultralytics
    # ONNX (ONNX Runtime, OpenVINO):
-   python3 -m ultralytics export model=yolo26m.pt format=onnx imgsz=640
+   yolo export model=yolo26m.pt format=onnx imgsz=640
    # Apple Core AI (Apple Silicon, macOS 27+), FP16:
-   python3 -m ultralytics export model=yolo26m.pt format="coreai" imgsz=640 quantize=16
+   yolo export model=yolo26m.pt format=coreai imgsz=640 quantize=16
    ```
    YOLO26 and YOLO12 models use the COCO labels in `coco.txt`. For YOLOE see
    [YOLOE Export](#yoloe-export), for Hailo a precompiled `.hef` from the Hailo
@@ -376,7 +376,7 @@ model:
   The asset is produced with the Ultralytics Core AI export:
 
 ```bash
-python3 -m ultralytics export model=yolo26x.pt format="coreai" imgsz=640 quantize=16
+yolo export model=yolo26x.pt format=coreai imgsz=640 quantize=16
 ```
 
   This writes `yolo26x.aimodel` (static graph exported at `imgsz`, raw YOLO26 head
