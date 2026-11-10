@@ -27,11 +27,92 @@ Real-time object detection pipeline for video files and webcams, based on YOLO m
 
 ---
 
+## Quick Start
+
+The steps from a fresh checkout to a processed video. Each step links to the
+section with the details and the optional backends.
+
+1. **Install the build dependencies** (see [Requirements](#requirements)).
+   yaml-cpp is needed to read `config.yaml`; FFmpeg copies the audio track into
+   the output.
+   ```bash
+   # macOS (Homebrew)
+   brew install cmake opencv yaml-cpp ffmpeg pkg-config
+   # macOS (MacPorts, installs under /opt/local, which CMake already searches)
+   sudo port install cmake opencv4 yaml-cpp ffmpeg pkgconfig
+   # Linux / Raspberry Pi OS
+   sudo apt install build-essential cmake pkg-config libopencv-dev libyaml-cpp-dev \
+                    libavformat-dev libavcodec-dev libavutil-dev
+   ```
+
+2. **Add ONNX Runtime** (recommended: OpenCV DNN alone cannot run YOLO26 models).
+   Unpack a [prebuilt release](https://github.com/microsoft/onnxruntime/releases)
+   into `onnxruntime/` in the project root, or build it from source (see
+   [ONNX Runtime](#onnx-runtime)). Skip this step for Core AI or Hailo only.
+
+3. **Build** (out of source, in `build/`):
+   ```bash
+   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+   cmake --build build --parallel
+   ```
+   The configure output lists which backends were enabled and why others were
+   skipped (e.g. `ONNX Runtime backend enabled: ...`,
+   `Core AI backend disabled: <reason>`).
+
+4. **Get a model** and put it in the project root. Models are not part of the
+   repository. Export one with Ultralytics:
+   ```bash
+   python3 -m pip install ultralytics
+   # ONNX (ONNX Runtime, OpenVINO):
+   python3 -m ultralytics export model=yolo26m.pt format=onnx imgsz=640
+   # Apple Core AI (Apple Silicon, macOS 27+), FP16:
+   python3 -m ultralytics export model=yolo26m.pt format="coreai" imgsz=640 quantize=16
+   ```
+   YOLO26 and YOLO12 models use the COCO labels in `coco.txt`. For YOLOE see
+   [YOLOE Export](#yoloe-export), for Hailo a precompiled `.hef` from the Hailo
+   Model Zoo (see [Requirements](#requirements)).
+
+5. **Create the configuration** from the template and set the model, the
+   backend and the input (see [Configuration](#configuration)):
+   ```bash
+   cp config.example.yaml config.yaml
+   ```
+   ```yaml
+   model:
+     model_file: "yolo26m.onnx"       # or "yolo26m.aimodel" with CoreAI
+     class_names_file: "coco.txt"
+   backend:
+     framework: "ONNXRuntime"         # OpenCV | OpenVINO | ONNXRuntime | CoreAI | Hailo
+   input:
+     source: "VIDEO"                  # or "WEBCAM" (with webcam_index)
+     video_input_file: "my_video.mp4"
+   output:
+     video_output_file: "output.mp4"
+   ```
+   Relative paths are resolved against the directory of `config.yaml`.
+
+6. **Run** (see [Usage](#usage)):
+   ```bash
+   ./build/ObjectDetection                  # finds config.yaml in ./ or ../
+   ./build/ObjectDetection --config path/to/config.yaml
+   ```
+   The video with the detected boxes is written to `video_output_file`. Ctrl+C
+   stops early and still writes the frames processed so far.
+
+7. **Optional: run the tests** (needs GoogleTest, or configure with
+   `-DFETCH_GTEST=ON`; see [Build](#build)):
+   ```bash
+   ctest --test-dir build --output-on-failure
+   ```
+
+---
+
 ## Requirements
 
 - **CMake** ≥ 3.10
 - **C++17** compiler (clang++ or g++)
 - **OpenCV** ≥ 4.x (with `opencv_dnn`, `opencv_tracking`)
+- **yaml-cpp** *(optional, required to load `config.yaml`; without it built-in defaults are used)*
 - **ONNX Runtime** *(optional, required for the ONNX Runtime backend)*
 - **OpenVINO** 2025.x *(optional, enabled by CMake only when an Intel CPU is detected)*
 - **FFmpeg libraries** *(optional: `libavformat`, `libavcodec`, `libavutil` via pkg-config, required for audio passthrough)*
