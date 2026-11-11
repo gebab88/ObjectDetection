@@ -411,6 +411,12 @@ python3 export_coreai.py --weights yolo26x.pt --quantize 4   # writes yolo26x_q4
   INT8 keeps the accuracy at half the size but is not faster; INT4 loses accuracy
   and runs slower on the GPU. FP16 stays the default for speed.
 
+  INT4 uses one scale per block of 32 input channels, which the Neural Engine
+  cannot run: its compiler rejects the model once (`ANECCompile() FAILED` on the
+  first run) and the Neural Engine lanes then run on the GPU. `--block-size 0`
+  writes one scale per output channel instead; that model runs on the Neural
+  Engine (8.3 ms per frame) but drops to mAP50-95 0.43.
+
   > **Note:** the ONNX Runtime backend consumes ONNX-format assets and cannot run
   > `.aimodel` packages. The automatic fallback therefore maps an `.aimodel`
   > selection to its ONNX counterpart (e.g. `yolo26x.aimodel` → `yolo26x.onnx`) and
