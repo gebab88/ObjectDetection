@@ -534,6 +534,14 @@ COREAI_COMPUTE_UNIT=cpu           ./build/ObjectDetection  # two CPU-only lanes
 > reruns the frame (`[CoreAI] Rerunning an all-zero output ...`, printed once).
 > It does not happen with a single unit (`COREAI_COMPUTE_UNIT=gpu`).
 
+> **Stale specialization cache:** Core AI caches the specialized model, while the
+> compiled Neural Engine program is kept by the system's Neural Engine daemon. If
+> the daemon no longer has that program (seen after the model file had been moved
+> or deleted since its first run, and for a binary signed with another
+> identifier), inference fails. The backend then deletes the cache entry and
+> specializes again (`[CoreAI] The cached Neural Engine specialization ... could
+> not be used; rebuilding it`, a few seconds once).
+
 When the Core AI backend is not compiled in (see the requirements above) or fails
 during initialisation, the application falls back to the ONNX Runtime backend.
 

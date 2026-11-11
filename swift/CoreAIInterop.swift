@@ -21,6 +21,8 @@ actor CoreAIState {
     static let shared = CoreAIState()
     private var modelPath: String?
     private var loadTasks: [ComputeUnit: Task<InferenceFunction, Error>] = [:]
+    // Units whose cached specialization was already rebuilt for this model.
+    private var rebuilt = Set<ComputeUnit>()
 
     // Returns the model function specialized for `unit`. The first call loads
     // the specializations of all configured lanes at once and waits for all of
@@ -30,6 +32,7 @@ actor CoreAIState {
         if modelPath != path {
             modelPath = path
             loadTasks = [:]
+            rebuilt = []
         }
         var started: [Task<InferenceFunction, Error>] = []
         for lane in Set(computeLanes).union([unit]) where loadTasks[lane] == nil {
@@ -58,6 +61,27 @@ actor CoreAIState {
             }
             throw error
         }
+    }
+
+    // Returns the function for `unit` after its specialization failed to load
+    // or run. Core AI's cache keeps the specialized model, but the compiled
+    // Neural Engine program it refers to lives in the Neural Engine daemon's
+    // own cache. That one can lack the program while Core AI's entry exists:
+    // it keeps programs per code-signing identifier (Core AI's cache is shared
+    // by executables of the same name), and it was seen to drop a program
+    // after the model file the entry was first built from had been deleted (a
+    // copy with the same content reuses the entry). Core AI then fails with a
+    // generic error instead of compiling again. Deleting the entry makes it
+    // specialize anew, so that is done once per unit; every caller that failed
+    // on the old function gets the new one.
+    func rebuiltFunction(modelPath path: String, unit: ComputeUnit) async throws -> InferenceFunction {
+        if modelPath == path && !rebuilt.contains(unit) {
+            rebuilt.insert(unit)
+            loadTasks[unit] = nil
+            try AIModelCache.default.deleteEntry(for: URL(fileURLWithPath: path), options: unit.options)
+            CoreAINotice.shared.once("The cached \(unit.label) specialization of the model could not be used; rebuilding it (takes a few seconds once).")
+        }
+        return try await function(modelPath: path, unit: unit)
     }
 }
 
@@ -352,7 +376,22 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
     Task {
         do {
             let unit = computeLanes[Int(lane) % computeLanes.count]
-            let function = try await CoreAIState.shared.function(modelPath: path, unit: unit)
+            // A specialization that fails to load or run is rebuilt once (see
+            // rebuiltFunction); if that does not help, the first error is reported.
+            var rebuilt = false
+            func rebuiltFunction(after error: Error) async throws -> InferenceFunction {
+                guard !rebuilt, let fresh = try? await CoreAIState.shared.rebuiltFunction(modelPath: path, unit: unit) else {
+                    throw error
+                }
+                rebuilt = true
+                return fresh
+            }
+            var function: InferenceFunction
+            do {
+                function = try await CoreAIState.shared.function(modelPath: path, unit: unit)
+            } catch {
+                function = try await rebuiltFunction(after: error)
+            }
             let input = try imageInput(of: function, shape: shapeInts)
             var inputNDArray = NDArray(shape: shapeInts, scalarType: input.scalarType)
             guard inputNDArray.strides.isEmpty || inputNDArray.strides == contiguousStrides else {
@@ -380,8 +419,13 @@ public func coreAIInfer(_ inputData: UnsafePointer<Float>,
             // without detections may legitimately be zero; they cost one extra
             // inference then.)
             for attempt in 1...2 {
-                let outputs = try await function.run(inputs: inputs)
-                var o = outputs
+                var o: InferenceFunction.Outputs
+                do {
+                    o = try await function.run(inputs: inputs)
+                } catch {
+                    function = try await rebuiltFunction(after: error)
+                    o = try await function.run(inputs: inputs)
+                }
                 // Take the model's first declared output (deterministic order from
                 // the descriptor); fall back to whatever the result holds.
                 guard let name = function.descriptor.outputNames.first ?? o.names.first,
